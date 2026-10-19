@@ -1,0 +1,23 @@
+# 覆冰分割训练
+task: seg
+device: cpu
+
+data:
+  root: data/processed
+  manifest: data/manifests/icing_v1.jsonl
+  size: 512
+  num_workers: 0
+
+model:
+  backbone: mobilenetv4_conv_small
+  pretrained: true
+
+train:
+  epochs: 40
+  batch: 4
+  lr: 0.0005
+  weight_decay: 0.0001
+  amp: true
+  patience: 10
+  out_dir: artifacts
+  version: seg-0.1.0

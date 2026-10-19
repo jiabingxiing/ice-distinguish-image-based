@@ -1,0 +1,20 @@
+# TensorRT FP16 部署档（可选，需 NVIDIA GPU）
+# 不承诺 INT8：量化对覆冰边缘 IoU 的损伤需实测，且要先做量化感知训练。
+deploy:
+  backend: tensorrt
+  input_size: 1024
+  precision: fp16
+  workspace_gb: 2
+  min_batch: 1
+  opt_batch: 4
+  max_batch: 8
+  enable_dla: false
+
+fallback:
+  backend: onnxruntime
+  precision: fp32
+  trigger: "TRT 构建失败或数值一致性不达标"
+
+acceptance:
+  numeric_atol: 1.0e-3   # FP16 放宽
+  p95_ms: 120

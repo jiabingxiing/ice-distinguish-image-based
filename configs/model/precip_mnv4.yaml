@@ -1,0 +1,23 @@
+# T1 天气分类模型（§10.2）
+model:
+  backbone: mobilenetv4_conv_small   # timm 名称；离线时自动退化到 mini_resnet
+  pretrained: false                   # 训练时置 true
+  precip:
+    use_film: true
+    met_dropout: 0.3
+
+# 物理门控（软约束）
+prior:
+  lam: 0.30
+  temp_bins: [-30, -10, -5, -2, 0, 2, 5, 10, 40]
+  # table 由 scripts/build_prior.py 用本地历史气象记录重估后写入
+  table: null
+
+# 拒识
+reject:
+  tau_reject: 0.45
+  h_max: 1.80
+
+calibration:
+  method: temperature
+  ece_target: 0.10

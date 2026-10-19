@@ -1,0 +1,17 @@
+# T2 ROI 检测（§10.3）
+# 生产链路不使用 Ultralytics（AGPL-3.0），见 docs/decisions/ADR-0001
+model:
+  backbone: mobilenetv4_conv_small
+  pretrained: false
+  detector:
+    reg_max: 8
+    fpn_channels: 64
+    num_classes: 4          # conductor / insulator_string / tower / reference_fitting
+
+infer:
+  score_thr: 0.30
+  nms_thr: 0.50
+  tile: 640                 # 切片推理（SAHI 风格）
+  overlap: 0.20
+  max_dets: 300
+  batch: 4

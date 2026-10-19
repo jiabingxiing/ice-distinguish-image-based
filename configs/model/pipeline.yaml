@@ -1,0 +1,71 @@
+# 全链路推理配置（服务/CLI 默认入口）
+device: cpu
+
+model:
+  backbone: mobilenetv4_conv_small
+  pretrained: false
+  precip:
+    use_film: true
+  detector:
+    reg_max: 8
+
+weights:
+  precip: null            # artifacts/precip/precip-0.1.0/best.pt
+  detector: null
+  seg: null
+  calibration: configs/model/precip_calibration.json
+
+evidence_dir: artifacts/evidence
+
+infer:
+  precip:
+    lam: 0.30
+    tau_reject: 0.45
+    h_max: 1.80
+  detector:
+    score_thr: 0.30
+    nms_thr: 0.50
+    tile: 640
+    overlap: 0.20
+  seg:
+    input_size: 512
+    min_coverage: 0.03
+
+# 以下三段与独立配置文件同构，便于一次加载
+quality:
+  blur_degraded: 0.60
+  blur_unusable: 0.80
+  exposure_degraded: 0.25
+  exposure_unusable: 0.45
+  block_energy_degraded: 0.15
+  block_energy_unusable: 0.05
+  night_mean_gray: 20.0
+  grid: [6, 8]
+  lens_window: 5
+  lens_frames: 3
+
+severity:
+  grades:
+    G0: {max_coverage: 0.03}
+    G1: {max_coverage: 0.15}
+    G2: {max_coverage: 0.30}
+    G3: {max_coverage: 0.50}
+    G4: {max_coverage: null}
+
+alarm:
+  version: "1.0.0"
+  require_measured: true
+  levels:
+    I:   {d_eq_mm: {min: 0.001, max: 5.0},  gamma: {min: 0.0, max: 0.3}, bridge: {min: 0.0, max: 0.2}}
+    II:  {d_eq_mm: {min: 5.0, max: 10.0},   gamma: {min: 0.3, max: 0.5}, bridge: {min: 0.2, max: 0.5}}
+    III: {d_eq_mm: {min: 10.0, max: 20.0},  gamma: {min: 0.5, max: 0.8}, bridge: {min: 0.5, max: 0.8}}
+    IV:  {d_eq_mm: {min: 20.0, max: null},  gamma: {min: 0.8, max: null}, bridge: {min: 0.8, max: null}}
+  debounce:
+    escalate_frames: 3
+    deescalate_frames: 5
+  ekf:
+    dt_minutes: 15
+    growth_rate_max_mm_per_h: 3.0
+    innovation_gate_sigma: 3.0
+    process_noise: {d: 0.5, rate: 0.2}
+    measurement_noise_mm: 1.5

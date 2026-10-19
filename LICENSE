@@ -1,0 +1,16 @@
+# 许可
+
+Copyright (c) 2026. All rights reserved.
+
+本仓库为**内部项目代码**，未开源。
+
+- 未经授权，不得复制、分发、修改或用于商业用途。
+- 生产链路不包含 AGPL-3.0 组件（详见 `docs/data_license_ledger.md` 与
+  `docs/decisions/ADR-0001-detector-license.md`）。
+- 第三方数据集的许可状态各自独立，**不因本仓库的许可声明而获得授权**；
+  使用前须逐个确认（见 `docs/data_license_ledger.md`）。
+
+如需对外交付或商用，须先完成：
+1. 依赖树许可审查（`pip-licenses` 或 `uv pip list` + 人工核对）；
+2. 数据集商用授权书面确认；
+3. 法务复核。

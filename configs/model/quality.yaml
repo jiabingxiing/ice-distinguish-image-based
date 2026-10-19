@@ -1,0 +1,13 @@
+# T0 质量门控阈值（§10.1）
+# 全部为初始值，须在现场数据上按分布校准后回写
+quality:
+  blur_degraded: 0.60        # 拉普拉斯方差归一化后 → 模糊分
+  blur_unusable: 0.80
+  exposure_degraded: 0.25    # 过曝/欠曝像素占比
+  exposure_unusable: 0.45
+  block_energy_degraded: 0.15  # 网格高频能量最小值
+  block_energy_unusable: 0.05
+  night_mean_gray: 20.0      # 平均灰度低于此值判为夜间
+  grid: [6, 8]               # rows, cols
+  lens_window: 5             # 镜头结冰判定的滑动窗口帧数
+  lens_frames: 3             # 连续多少帧低能量才告警

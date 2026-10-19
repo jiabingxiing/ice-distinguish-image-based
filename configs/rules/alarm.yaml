@@ -1,0 +1,39 @@
+# 预警规则（§10.7.3）
+# ⚠️ 所有阈值必须由业务方按本地区现行规程校准后回写；
+#    本文件给出的是初始占位值。
+version: "1.0.0"
+require_measured: true          # 未标定时禁止输出等级
+
+levels:
+  I:
+    d_eq_mm: {min: 0.001, max: 5.0}
+    gamma:   {min: 0.0,   max: 0.3}
+    bridge:  {min: 0.0,   max: 0.2}
+  II:
+    d_eq_mm: {min: 5.0, max: 10.0}
+    gamma:   {min: 0.3, max: 0.5}
+    bridge:  {min: 0.2, max: 0.5}
+  III:
+    d_eq_mm: {min: 10.0, max: 20.0}
+    gamma:   {min: 0.5,  max: 0.8}
+    bridge:  {min: 0.5,  max: 0.8}
+  IV:
+    d_eq_mm: {min: 20.0, max: null}
+    gamma:   {min: 0.8,  max: null}
+    bridge:  {min: 0.8,  max: null}
+
+debounce:
+  escalate_frames: 3            # 升级需连续满足帧数
+  deescalate_frames: 5
+
+ekf:
+  dt_minutes: 15
+  growth_rate_max_mm_per_h: 3.0 # 超出视为非物理增长
+  innovation_gate_sigma: 3.0
+  process_noise: {d: 0.5, rate: 0.2}
+  measurement_noise_mm: 1.5
+  init_variance: 4.0
+
+review:
+  levels: ["III", "IV"]
+  note: "等级 ≥III 强制转人工复核"

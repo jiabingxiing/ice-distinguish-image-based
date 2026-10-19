@@ -1,0 +1,19 @@
+# 天气分类数据参数
+data:
+  size: 384
+  manifest: data/manifests/weather_v1.jsonl
+
+# 11 类原始标签 → 本项目 8 类的映射（见 configs/labels/taxonomy.yaml）
+taxonomy:
+  drop: [dew, rainbow, sandstorm, lightning]
+  merge:
+    frost: frost
+    glaze: glaze_evidence
+    rime: rime
+
+# 场景分层（供采样器使用）
+scene_weights:
+  clear: 1.0
+  adverse: 1.5
+  equipment: 1.3
+  normal: 1.0

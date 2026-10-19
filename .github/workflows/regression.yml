@@ -1,0 +1,36 @@
+name: regression
+
+# 每日跑固定黄金集，任一指标相对基线下降 > 2 个点则 fail（§15.5）
+on:
+  schedule:
+    - cron: "0 18 * * *"   # UTC 18:00 = 北京时间 02:00
+  workflow_dispatch:
+
+jobs:
+  regression:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v3
+        with:
+          enable-cache: true
+      - name: 安装依赖
+        run: |
+          uv venv --python 3.11 .venv
+          uv pip install --python .venv/bin/python -e ".[dev,deploy]"
+      - name: 下载黄金集与基线（由制品库提供）
+        run: |
+          echo "::notice::需要配置 GOLDEN_SET_URL / BASELINE_ARTIFACT，本步骤在接入前为占位"
+      - name: 评估并产出 current_metrics.json
+        run: |
+          if [ -f configs/train/seg.yaml ]; then
+            .venv/bin/python -m grid_ice_vision.cli evaluate --config configs/train/seg.yaml || true
+          fi
+      - name: 基线对比
+        run: .venv/bin/python -m pytest tests/e2e -q
+      - name: 上传指标
+        uses: actions/upload-artifact@v4
+        with:
+          name: metrics
+          path: artifacts/*.json
+          if-no-files-found: ignore

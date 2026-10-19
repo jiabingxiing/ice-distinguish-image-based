@@ -1,0 +1,20 @@
+# 数据路径与通用读取参数（所有任务共用）
+data:
+  root: data/processed
+  manifest: data/manifests/all_v1.jsonl
+  size: 384
+  num_workers: 0
+  cache: false
+
+# 四级数据流（§11.2）
+paths:
+  raw: data/raw
+  external: data/external
+  interim: data/interim
+  processed: data/processed
+  manifests: data/manifests
+
+# 硬门槛：许可未确认的资源只能留在 external/（只读、不参与训练）
+license_gate:
+  enforce: true
+  external_is_readonly: true

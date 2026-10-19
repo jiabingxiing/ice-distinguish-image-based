@@ -1,0 +1,16 @@
+# 覆冰分割/类型数据参数
+data:
+  size: 512
+  manifest: data/manifests/icing_v1.jsonl
+  mask_suffix: _mask.png
+
+# 合成数据隔离（§11.4）
+synthetic:
+  only_in_train: true
+  require_zero_error_truth: true
+  texture_source: data/raw/textures
+
+# 类别合并规则：单类样本 < 50 时并入 mixed
+merge_rule:
+  min_samples_per_class: 50
+  fallback_class: mixed

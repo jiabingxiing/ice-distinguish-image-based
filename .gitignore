@@ -1,0 +1,51 @@
+# ---- Python ----
+__pycache__/
+*.py[cod]
+*.egg-info/
+.eggs/
+build/
+dist/
+.venv/
+venv/
+.mypy_cache/
+.pytest_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+coverage.xml
+*.so
+.pyd
+
+# ---- 实验产物：统一写 artifacts/，不入库 ----
+artifacts/
+runs/
+wandb/
+lightning_logs/
+*.onnx
+*.engine
+*.pt
+*.pth
+*.ckpt
+
+# ---- 数据：只保留目录骨架与 README ----
+data/raw/*
+data/external/*
+data/interim/*
+data/processed/*
+!data/**/.gitkeep
+!data/**/README.md
+data/manifests/*.jsonl
+
+# ---- 密钥与本地配置 ----
+.env
+.env.*
+!.env.example
+*.local.yaml
+secrets/
+
+# ---- 编辑器 / 系统 ----
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
+desktop.ini

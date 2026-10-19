@@ -1,0 +1,31 @@
+name: ci
+
+on:
+  push:
+    branches: [main, develop]
+  pull_request:
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v3
+        with:
+          enable-cache: true
+      - name: 安装依赖
+        run: |
+          uv venv --python 3.11 .venv
+          uv pip install --python .venv/bin/python -e ".[dev,serve,deploy]"
+      - name: ruff
+        run: .venv/bin/ruff check src scripts tests
+      - name: ruff format check
+        run: .venv/bin/ruff format --check src scripts tests
+      - name: mypy
+        run: .venv/bin/mypy src
+      - name: 单元测试
+        run: .venv/bin/python -m pytest tests/unit -q
+      - name: 集成测试（含 ONNX 数值一致性）
+        run: .venv/bin/python -m pytest tests/integration -q
+      - name: 合成自检（物理量算精度）
+        run: .venv/bin/python scripts/demo_synthetic.py

@@ -1,0 +1,24 @@
+# ROI 检测训练
+task: detector
+device: cpu
+
+data:
+  root: data/processed
+  manifest: data/manifests/detect_v1.jsonl
+  coco: data/processed/ttpla_coco/annotations.json
+  size: 640
+  num_workers: 0
+
+model:
+  backbone: mobilenetv4_conv_small
+  pretrained: true
+
+train:
+  epochs: 40
+  batch: 4
+  lr: 0.0005
+  weight_decay: 0.0001
+  amp: true
+  patience: 10
+  out_dir: artifacts
+  version: det-0.1.0

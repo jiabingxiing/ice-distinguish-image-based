@@ -1,0 +1,19 @@
+# T3 覆冰分割（§10.4）
+model:
+  backbone: mobilenetv4_conv_small
+  pretrained: false
+  seg:
+    decoder_channels: 64
+    num_classes: 4          # background / exposed_asset / ice_accretion / icicle_bridge
+
+loss:
+  lambda_dice: 1.0
+  lambda_focal: 1.0
+  lambda_bnd: 0.5
+  fn_weight: 2.0            # FN 权重高于 FP
+
+infer:
+  seg:
+    input_size: 512
+    ice_conf_thr: 0.50
+    min_coverage: 0.03

@@ -1,0 +1,36 @@
+repos:
+  - repo: https://github.com/astral-sh/ruff-pre-commit
+    rev: v0.6.9
+    hooks:
+      - id: ruff
+        args: [--fix]
+        files: ^(src|scripts|tests)/
+      - id: ruff-format
+        files: ^(src|scripts|tests)/
+
+  - repo: https://github.com/pre-commit/pre-commit-hooks
+    rev: v4.6.0
+    hooks:
+      - id: trailing-whitespace
+        exclude: \.md$
+      - id: end-of-file-fixer
+      - id: check-yaml
+      - id: check-added-large-files
+        args: [--maxkb=2048]
+      - id: check-merge-conflict
+      - id: forbid-submodules
+
+  # 本地钩子：类型检查与泄漏校验（依赖已安装的 .venv）
+  - repo: local
+    hooks:
+      - id: mypy
+        name: mypy (src)
+        entry: .venv/bin/mypy
+        language: system
+        args: [src]
+        pass_filenames: false
+      - id: no-ultralytics-in-src
+        name: 生产链路禁止 ultralytics（AGPL）
+        entry: bash -c 'if grep -rn "import ultralytics\|from ultralytics" src/ ; then echo "src/ 中禁止 AGPL 依赖"; exit 1; fi'
+        language: system
+        pass_filenames: false

@@ -1,0 +1,23 @@
+# 天气分类训练
+task: precip
+device: cpu
+
+data:
+  root: data/processed
+  manifest: data/manifests/weather_v1.jsonl
+  size: 384
+  num_workers: 0
+
+model:
+  backbone: mobilenetv4_conv_small
+  pretrained: true
+
+train:
+  epochs: 30
+  batch: 16
+  lr: 0.001
+  weight_decay: 0.0001
+  amp: true
+  patience: 8
+  out_dir: artifacts
+  version: precip-0.1.0

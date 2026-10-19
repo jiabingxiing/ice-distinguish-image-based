@@ -1,0 +1,41 @@
+# 标签体系与 ID 映射（唯一事实来源）
+version: "1.0.0"
+
+weather:
+  labels: [clear, rain, snow, hail, fog, frost, rime, glaze_evidence]
+  multilabel: true
+  note: "glaze_evidence 只表示「看到像雨凇的东西」，不表示确认发生冻雨"
+  source_11class_map:
+    dew: null            # 丢弃：与 frost/fog 混淆，且非降水
+    fogsmog: fog
+    frost: frost
+    glaze: glaze_evidence
+    hail: hail
+    lightning: null      # 丢弃：非降水相态
+    rain: rain
+    rainbow: null        # 丢弃：非降水相态
+    rime: rime
+    sandstorm: null      # 丢弃：非本项目关注
+    snow: snow
+
+intensity:
+  labels: [none, light, moderate, heavy]
+  unknown_policy: "标注为 unknown 时不参与 CORAL 损失"
+
+assets:
+  labels: [conductor, insulator_string, tower, reference_fitting]
+  reference_fitting_note: "耐张线夹/防振锤/间隔棒/绝缘子钢帽，用于尺度标定"
+
+segmentation:
+  labels: [background, exposed_asset, ice_accretion, icicle_bridge]
+  exposed_asset_note: "必须标注，否则覆盖率分母只能用整张图，毫无意义"
+
+ice_type:
+  labels: [none, glaze, rime, mixed, unknown]
+  merge_rule: "单类样本 < 50 时并入 mixed"
+  rho_kg_m3:
+    glaze: 900
+    rime: 350
+    mixed: 600
+    none: 900
+    unknown: 900

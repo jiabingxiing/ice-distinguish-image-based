@@ -1,0 +1,13 @@
+# ONNX / CPU 部署档（默认）
+deploy:
+  backend: onnxruntime
+  input_size: 512
+  opset: 17
+  dynamic_batch: false
+  precision: fp32
+  intra_op_threads: 4
+  providers: [CPUExecutionProvider]
+
+acceptance:
+  numeric_atol: 1.0e-4
+  p95_ms: 200            # 单卡 1080P 全链路
