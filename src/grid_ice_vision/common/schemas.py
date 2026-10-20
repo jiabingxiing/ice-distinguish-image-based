@@ -171,6 +171,8 @@ class IcingResult(BaseModel):
     coverage_ratio: float | None = Field(default=None, ge=0.0, le=1.0)
     ice_type: IceType = IceType.UNKNOWN
     ice_type_conf: float = Field(default=0.0, ge=0.0, le=1.0)
+    # 类型是怎么来的：规则 / 启发式 / 模型 / 无（不猜）
+    ice_type_source: Literal["none_rule", "heuristic", "model", "unavailable"] = "unavailable"
     bridge_ratio: float | None = Field(default=None, ge=0.0, le=1.0)
     mask_rle: MaskRLE | None = None
 
@@ -187,6 +189,9 @@ class SeverityResult(BaseModel):
     )
     alpha_mm_per_px: float | None = None
     uncertainty_mm: float | None = None
+    # 密度折算必须可追溯：用了哪个 ρ、依据是什么，否则事后无法解释厚度
+    rho_kg_m3: float | None = Field(default=None, gt=0.0)
+    rho_source: Literal["standard", "config_prior", "ice_type_model"] = "standard"
     requires_review: bool = False
 
     @model_validator(mode="after")

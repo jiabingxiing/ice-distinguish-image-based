@@ -12,7 +12,7 @@ from collections.abc import Iterable
 from pathlib import Path
 from typing import Any
 
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel, Field, field_validator, model_validator
 
 SPLITS = ("train", "val", "test")
 
@@ -41,6 +41,19 @@ class ManifestRecord(BaseModel):
         if v not in SPLITS:
             raise ValueError(f"split 必须是 {SPLITS} 之一，得到 {v}")
         return v
+
+    @model_validator(mode="after")
+    def _synthetic_flag_consistent(self) -> ManifestRecord:
+        """sidecar 声明合成、顶层却标成真实 —— 这是会污染 val/test 的隐性 bug。
+
+        `artifacts/demo_real*.jsonl` 就踩过：把合成图重标成 `is_synthetic=false`，
+        但 sha256 与合成版逐条相同，用它的 test 集会得到虚高指标。
+        """
+        if self.labels.get("is_synthetic") is True and not self.is_synthetic:
+            raise ValueError(
+                f"{self.image_id}: sidecar 声明 is_synthetic=true，但顶层 is_synthetic=false"
+            )
+        return self
 
     @property
     def group_key(self) -> str:

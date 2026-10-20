@@ -1,24 +1,30 @@
-# ROI 检测训练
+# ROI 检测训练（TTPLA / Apache-2.0）
+# 注意：TTPLA 只有 tower/conductor 两类，4 类头里 2 类永远无正样本，
+# 指标只能报"2 类"，且域为航拍俯视，不能作为杆塔侧视精度证据。
 task: detector
 device: cpu
+hf_endpoint: https://hf-mirror.com
 
 data:
-  root: data/processed
+  root: data/raw/ttpla
   manifest: data/manifests/detect_v1.jsonl
   coco: data/processed/ttpla_coco/annotations.json
   size: 640
-  num_workers: 0
+  num_workers: 4
+  # 允许一定比例的无目标背景图；低于此比例会报错（防止文件名不匹配）
+  min_annotated_ratio: 0.5
 
 model:
   backbone: mobilenetv4_conv_small
   pretrained: true
 
 train:
-  epochs: 40
+  epochs: 24
+  patience: 6
   batch: 4
   lr: 0.0005
   weight_decay: 0.0001
-  amp: true
-  patience: 10
+  backbone_lr_mult: 0.1
+  amp: off
   out_dir: artifacts
   version: det-0.1.0

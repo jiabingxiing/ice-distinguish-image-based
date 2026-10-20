@@ -20,6 +20,12 @@ from grid_ice_vision.data.transforms.common import load_image, to_chw
 
 
 class DetectionDataset(Dataset[dict[str, Any]]):
+    """检测数据集。
+
+    标注缺失时**必须显式失败**：COCO 不存在时若静默返回空标注，训练会
+    学成"所有点都是背景"，loss 从 0.69 平稳降到 0.02，曲线漂亮但 mAP=0。
+    """
+
     def __init__(
         self,
         records: list[ManifestRecord],
@@ -27,6 +33,8 @@ class DetectionDataset(Dataset[dict[str, Any]]):
         coco_file: str | Path,
         size: int = 640,
         train: bool = False,
+        require_annotations: bool = True,
+        min_annotated_ratio: float = 0.5,
     ) -> None:
         self.records = records
         self.root = Path(root)
@@ -34,16 +42,37 @@ class DetectionDataset(Dataset[dict[str, Any]]):
         self.train = train
         self.coco_file = Path(coco_file)
         self.anns: dict[str, list[dict[str, Any]]] = {}
-        if self.coco_file.exists():
-            data = json.loads(self.coco_file.read_text(encoding="utf-8"))
-            id2name = {c["id"]: c["name"] for c in data.get("categories", [])}
-            img2id = {im["file_name"]: im["id"] for im in data.get("images", [])}
-            self._img2id = img2id
-            self._id2name = id2name
-            for a in data.get("annotations", []):
-                key = str(a["image_id"])
-                a["_name"] = id2name.get(a["category_id"], "conductor")
-                self.anns.setdefault(key, []).append(a)
+        self._img2id: dict[str, int] = {}
+        self._id2name: dict[int, str] = {}
+
+        if not self.coco_file.exists():
+            raise FileNotFoundError(
+                f"检测标注不存在: {self.coco_file}。"
+                "先跑 scripts/convert_ttpla.py 生成 COCO；"
+                "缺失时数据集会退化成全空标注，训练只会得到全背景模型。"
+            )
+
+        data = json.loads(self.coco_file.read_text(encoding="utf-8"))
+        id2name = {c["id"]: c["name"] for c in data.get("categories", [])}
+        self._id2name = id2name
+        self._img2id = {im["file_name"]: im["id"] for im in data.get("images", [])}
+        for a in data.get("annotations", []):
+            key = str(a["image_id"])
+            a["_name"] = id2name.get(a["category_id"], "conductor")
+            self.anns.setdefault(key, []).append(a)
+
+        n_ann = sum(len(v) for v in self.anns.values())
+        if require_annotations and n_ann == 0:
+            raise ValueError(f"{self.coco_file} 不含任何 annotation，无法训练检测")
+
+        matched = sum(1 for r in records if self._annotations(r))
+        self.n_matched = matched
+        ratio = matched / max(len(records), 1)
+        if require_annotations and ratio < min_annotated_ratio:
+            raise ValueError(
+                f"仅 {matched}/{len(records)} 张图匹配到标注（阈值 {min_annotated_ratio:.2f}）："
+                "检查 COCO 的 images[].file_name 与 manifest 的 path 是否同名"
+            )
 
     def __len__(self) -> int:
         return len(self.records)

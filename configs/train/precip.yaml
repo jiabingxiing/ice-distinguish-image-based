@@ -1,23 +1,30 @@
-# 天气分类训练
+# 天气分类训练（WEAPD / CC0）
+# CPU 预算：7 类约 4–5k 张，384² bs16，15 epoch ≈ 1.1–1.3 h
 task: precip
 device: cpu
 
+# 必须在 import timm 之前生效；huggingface.co 本机直连 502
+hf_endpoint: https://hf-mirror.com
+
 data:
-  root: data/processed
+  root: data/raw/weapd/dataset
   manifest: data/manifests/weather_v1.jsonl
   size: 384
-  num_workers: 0
+  num_workers: 4
 
 model:
   backbone: mobilenetv4_conv_small
-  pretrained: true
+  pretrained: true            # 修好静默降级后，失败会直接报错
+  precip:
+    use_film: false           # 无气象传感器数据，先关；接传感器后开
 
 train:
-  epochs: 30
+  epochs: 15
+  patience: 4
   batch: 16
   lr: 0.001
   weight_decay: 0.0001
-  amp: true
-  patience: 8
+  backbone_lr_mult: 0.1       # 预训练骨干用小学习率
+  amp: off                    # 本机 Zen2/AVX2，无 bf16 加速；换 4090 改 fp16
   out_dir: artifacts
   version: precip-0.1.0

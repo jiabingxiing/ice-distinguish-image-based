@@ -66,7 +66,8 @@ def build(
                 ),
                 timestamp=meta["timestamp"],
                 split=split,
-                is_synthetic=synthetic,
+                # sidecar 声明优先：避免把合成图重标成真实数据（会污染 val/test）
+                is_synthetic=synthetic or bool(labels.get("is_synthetic", False)),
                 scene_group=str(labels.get("scene_group", scene_group)),
                 labels=labels,
                 label_version=str(labels.get("label_version", "v1.0")),

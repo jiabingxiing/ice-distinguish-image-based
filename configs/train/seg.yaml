@@ -1,23 +1,25 @@
-# 覆冰分割训练
+# 覆冰分割训练（需要 4 类像素掩码，当前无公开数据，暂不可跑）
 task: seg
 device: cpu
+hf_endpoint: https://hf-mirror.com
 
 data:
   root: data/processed
   manifest: data/manifests/icing_v1.jsonl
   size: 512
-  num_workers: 0
+  num_workers: 4
 
 model:
   backbone: mobilenetv4_conv_small
   pretrained: true
 
 train:
-  epochs: 40
+  epochs: 24
+  patience: 6
   batch: 4
   lr: 0.0005
   weight_decay: 0.0001
-  amp: true
-  patience: 10
+  backbone_lr_mult: 0.1
+  amp: off
   out_dir: artifacts
   version: seg-0.1.0

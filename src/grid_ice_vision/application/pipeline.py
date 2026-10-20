@@ -25,12 +25,12 @@ from grid_ice_vision.application.decision import (
 from grid_ice_vision.application.evidence import draw_heatmap, draw_mask_overlay
 from grid_ice_vision.application.temporal import EKFConfig, ThicknessEKF
 from grid_ice_vision.common.config import config_hash, get
-from grid_ice_vision.common.constants import RHO_BY_ICE_TYPE
 from grid_ice_vision.common.logging import get_logger
 from grid_ice_vision.common.schemas import (
     Asset,
     AssetClass,
     CalibInput,
+    IceType,
     IcingResult,
     InferenceResult,
     Intensity,
@@ -62,6 +62,11 @@ from grid_ice_vision.features.quality.gate import (
 from grid_ice_vision.features.severity.calibration import resolve_calibration
 from grid_ice_vision.features.severity.geometry import measure_widths
 from grid_ice_vision.features.severity.grading import SeverityThresholds, grade_from_coverage
+from grid_ice_vision.features.severity.ice_type import (
+    RhoPolicy,
+    ice_type_confidence,
+    resolve_ice_type,
+)
 from grid_ice_vision.features.severity.thickness import estimate_thickness
 
 log = get_logger("pipeline")
@@ -140,6 +145,7 @@ class InferencePipeline:
         self.quality_th = QualityThresholds.from_config(cfg.quality or cfg.raw)
         self.alarm_rules = AlarmRules.from_config(cfg.alarm or cfg.raw)
         self.severity_th = SeverityThresholds.from_config(cfg.severity or cfg.raw)
+        self.rho = RhoPolicy.from_config(cfg.raw)
         self.ekf_cfg = EKFConfig.from_config(cfg.alarm or cfg.raw)
         self.lens_tracker = LensIcingTracker()
         self.alarms = AlarmStateMachine(self.alarm_rules)
@@ -235,6 +241,9 @@ class InferencePipeline:
         if write_evidence and self.cfg.evidence_dir:
             evidence = self._write_evidence(image, image_id, seg, grade)
 
+        # 类型必须在厚度之前确定：密度折算要用它（G0→none，其余→unknown，不猜）
+        ice_type, ice_src = resolve_ice_type(grade)
+
         severity = self._severity(
             image=image,
             seg_mask=seg.mask,
@@ -242,7 +251,7 @@ class InferencePipeline:
             grade=grade,
             calib=calib,
             source=source,
-            ice_type=None,
+            ice_type=ice_type,
             quality=quality,
             history=history_d_eq_mm or [],
             roi_id=primary.roi_id,
@@ -252,8 +261,9 @@ class InferencePipeline:
             present=seg.ice_present,
             confidence=seg.confidence,
             coverage_ratio=None if coverage is None else round(coverage, 4),
-            ice_type=severity_ice_type(severity),
-            ice_type_conf=0.0,
+            ice_type=ice_type,
+            ice_type_conf=ice_type_confidence(ice_src),
+            ice_type_source=ice_src,
             bridge_ratio=None if seg.bridge is None else round(seg.bridge, 4),
             mask_rle=seg.mask_rle(),
         )
@@ -279,7 +289,7 @@ class InferencePipeline:
         grade: VisualGrade,
         calib: CalibInput,
         source: SourceInfo | None,
-        ice_type: str | None,
+        ice_type: IceType | None,
         quality: QualityInfo,
         history: list[float],
         roi_id: str,
@@ -317,7 +327,7 @@ class InferencePipeline:
                 requires_review=True,
             )
 
-        rho = RHO_BY_ICE_TYPE.get(ice_type or "unknown", 900.0)
+        rho, rho_src = self.rho.resolve(ice_type)
         est = estimate_thickness(
             w_ice_px=wm.width_px,
             w0_px=w0_px,
@@ -359,6 +369,8 @@ class InferencePipeline:
             calibration_source=outcome.source,
             alpha_mm_per_px=round(alpha, 5),
             uncertainty_mm=round(est.uncertainty_mm, 2),
+            rho_kg_m3=round(rho, 1),
+            rho_source=rho_src,
             requires_review=review or requires_review(level, self.alarm_rules),
         )
 
@@ -428,15 +440,6 @@ class InferencePipeline:
                 rule_version=self.alarm_rules.version,
             ),
         )
-
-
-def severity_ice_type(severity: SeverityResult) -> Any:
-    """类型头未接入时，用「有无覆冰」给出保守取值。"""
-    from grid_ice_vision.common.schemas import IceType
-
-    if severity.visual_grade is VisualGrade.G0:
-        return IceType.NONE
-    return IceType.UNKNOWN
 
 
 def _null_severity(quality: QualityInfo) -> SeverityResult:

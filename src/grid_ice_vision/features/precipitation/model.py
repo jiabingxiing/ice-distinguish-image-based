@@ -47,13 +47,18 @@ class MetEncoder(nn.Module):
         self.register_buffer("_std", torch.tensor([15.0, 25.0, 5.0, 10.0]))
 
     def forward(self, met: Tensor | None) -> Tensor:
+        """`met=None` 表示「没有气象输入」，此时**不插补任何物理量**。
+
+        早前版本把缺失输入伪造成 (0℃, 60%RH, 5m/s) 且可用性标志置 1，
+        等于告诉网络"有传感器且读数是这些值"。上线接真传感器
+        （如 -5℃ / 95%RH）时输入分布整体跳变，FiLM 的调制系数会落在
+        训练时没见过的区间。
+        """
         if met is None:
-            met = torch.zeros(1, 4, device=next(self.parameters()).device)
-            met = met.expand(1, -1)
+            # 4 个物理量 + avail 全 0；Python 级分支，导出时是常量，不破坏 ONNX
+            return self.net(torch.zeros(1, 5, device=next(self.parameters()).device))
         if met.ndim == 1:
             met = met.unsqueeze(0)
-        # 可用性标志由「是否传入了气象张量」决定，不依赖数据本身取值：
-        # 数据相关的分支会破坏 ONNX 导出（torch.export 无法对张量值做 guard）。
         avail = torch.ones(met.shape[0], 1, device=met.device, dtype=met.dtype)
         mean = self.get_buffer("_mean")
         std = self.get_buffer("_std")

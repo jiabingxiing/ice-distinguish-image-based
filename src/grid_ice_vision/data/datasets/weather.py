@@ -45,22 +45,50 @@ class WeatherDataset(Dataset[dict[str, Any]]):
             if name in labels:
                 target[i] = 1.0
 
+        # 类别掩码：数据源缺某一类（如 WEAPD 没有 clear）时屏蔽该维，避免
+        # 模型被"永远为 0"的标签误导成"clear 一定不成立"
+        raw_mask = r.labels.get("weather_mask")
+        mask = (
+            np.asarray(raw_mask, dtype=np.float32)
+            if raw_mask is not None
+            else np.ones(len(WEATHER_LABELS), dtype=np.float32)
+        )
+
         intensity = str(r.labels.get("intensity", "unknown"))
         level = INTENSITY_LEVELS.index(intensity) if intensity in INTENSITY_LEVELS else -1
 
-        return {
+        item: dict[str, Any] = {
             "image": torch.from_numpy(to_chw(img)),
             "weather": torch.from_numpy(target),
+            "weather_mask": torch.from_numpy(mask),
             "intensity": torch.tensor(level, dtype=torch.long),
             "image_id": r.image_id,
         }
+        # 现场气象读数（可选）：没有就完全不传，模型侧按 avail=0 处理
+        ws = r.labels.get("weather_sensor")
+        if isinstance(ws, dict):
+            item["met"] = torch.tensor(
+                [
+                    [
+                        float(ws.get("t_amb_c", 0.0)),
+                        float(ws.get("rh", 0.0)),
+                        float(ws.get("v_wind_ms", 0.0)),
+                        float(ws.get("p_atm_hpa", 1013.0)),
+                    ]
+                ],
+                dtype=torch.float32,
+            )
+        return item
 
 
 def collate(batch: list[dict[str, Any]]) -> dict[str, Any]:
     out: dict[str, Any] = {
         "image": torch.stack([b["image"] for b in batch]),
         "weather": torch.stack([b["weather"] for b in batch]),
+        "weather_mask": torch.stack([b["weather_mask"] for b in batch]),
         "intensity": torch.stack([b["intensity"] for b in batch]),
     }
+    if all("met" in b for b in batch):
+        out["met"] = torch.cat([b["met"] for b in batch], dim=0)
     out["image_id"] = [b["image_id"] for b in batch]
     return out

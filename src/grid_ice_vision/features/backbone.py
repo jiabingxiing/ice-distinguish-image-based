@@ -40,7 +40,7 @@ class _Residual(nn.Module):
 
 
 class MiniResNet(nn.Module):
-    """极简 ResNet 变体，仅用于离线兜底与单测（约 1.2M 参数）。"""
+    """极简 ResNet 变体，仅用于离线兜底与单测（实测 2.77M 参数）。"""
 
     out_channels: tuple[int, ...] = (32, 64, 128, 256)
     out_strides: tuple[int, ...] = (4, 8, 16, 32)
@@ -68,15 +68,29 @@ class BackboneSpec:
     channels: tuple[int, ...]
     strides: tuple[int, ...]
     is_fallback: bool
+    pretrained: bool = False
+    fallback_reason: str = ""
 
 
 class Backbone(nn.Module):
-    """统一包装：`forward(x) -> list[Tensor]`（低层 → 高层）。"""
+    """统一包装：`forward(x) -> list[Tensor]`（低层 → 高层）。
 
-    def __init__(self, name: str = "mobilenetv4_conv_small", pretrained: bool = False) -> None:
+    `pretrained=True` 时**不允许静默降级**：拿不到权重就抛错。
+    理由：离线环境下 timm 会失败，若不报错，训练两小时后拿到的骨干
+    与随机初始化的 MiniResNet 等价，而配置、日志、checkpoint 三处
+    都写着 `pretrained: true`，事后无法分辨。
+    """
+
+    def __init__(
+        self,
+        name: str = "mobilenetv4_conv_small",
+        pretrained: bool = False,
+        allow_fallback: bool = False,
+    ) -> None:
         super().__init__()
         self.spec: BackboneSpec
         self.body: nn.Module
+        reason = ""
         try:
             import timm
 
@@ -92,21 +106,40 @@ class Backbone(nn.Module):
             if len(chans) < 3:
                 raise ValueError("timm 骨干输出层数不足")
             self.body = body
-            self.spec = BackboneSpec(name=name, channels=chans, strides=strides, is_fallback=False)
-        except Exception:
-            mini = MiniResNet()
-            self.body = mini
             self.spec = BackboneSpec(
-                name="mini_resnet",
-                channels=mini.out_channels,
-                strides=mini.out_strides,
-                is_fallback=True,
+                name=name, channels=chans, strides=strides, is_fallback=False, pretrained=pretrained
             )
+            return
+        except ImportError as exc:
+            reason = f"timm 不可用: {exc}"
+        except Exception as exc:
+            reason = f"{type(exc).__name__}: {str(exc)[:200]}"
+
+        if pretrained and not allow_fallback:
+            raise RuntimeError(
+                f"骨干 {name} 的预训练权重加载失败（{reason}）。"
+                "离线环境请先设置 HF_ENDPOINT=https://hf-mirror.com 或调用 "
+                "common.config.configure_hf_mirror()；"
+                "确需随机初始化请显式设置 model.pretrained=false。"
+            )
+
+        mini = MiniResNet()
+        self.body = mini
+        self.spec = BackboneSpec(
+            name="mini_resnet",
+            channels=mini.out_channels,
+            strides=mini.out_strides,
+            is_fallback=True,
+            pretrained=False,
+            fallback_reason=reason,
+        )
 
     def forward(self, x: Tensor) -> list[Tensor]:
         feats = self.body(x)
         return list(feats)
 
 
-def build_backbone(name: str = "mobilenetv4_conv_small", pretrained: bool = False) -> Backbone:
-    return Backbone(name=name, pretrained=pretrained)
+def build_backbone(
+    name: str = "mobilenetv4_conv_small", pretrained: bool = False, allow_fallback: bool = False
+) -> Backbone:
+    return Backbone(name=name, pretrained=pretrained, allow_fallback=allow_fallback)

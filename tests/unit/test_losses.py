@@ -100,6 +100,29 @@ def test_coral_loss_finite() -> None:
     assert torch.isfinite(loss)
 
 
+def test_coral_ignores_unknown() -> None:
+    """intensity=-1（unknown）不得被当成 none 监督。"""
+    torch.manual_seed(0)
+    logits = torch.randn(3, 4)
+    full = CoralLoss(5)(logits, torch.tensor([0, -1, 3]))
+    sub = CoralLoss(5)(logits[[0, 2]], torch.tensor([0, 3]))
+    assert float(full) == pytest.approx(float(sub), abs=1e-6)
+
+
+def test_coral_all_unknown_is_zero_and_differentiable() -> None:
+    logits = torch.randn(2, 4, requires_grad=True)
+    loss = CoralLoss(5)(logits, torch.tensor([-1, -1]))
+    assert float(loss) == 0.0
+    loss.backward()
+    assert logits.grad is not None
+
+
+def test_coral_ignore_index_can_be_disabled() -> None:
+    logits = torch.zeros(2, 4)
+    loss = CoralLoss(5, ignore_index=None)(logits, torch.tensor([0, 4]))
+    assert torch.isfinite(loss)
+
+
 def test_class_balanced_weights_inverse_frequency() -> None:
     cb = ClassBalancedCE([1000, 10, 100])
     w = cb.weight

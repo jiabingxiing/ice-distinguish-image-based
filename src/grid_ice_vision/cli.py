@@ -26,71 +26,80 @@ def _cfg(path: str) -> dict[str, Any]:
     return cfg
 
 
-def _build_loaders(cfg: dict[str, Any], task: str) -> tuple[Any, Any, Any]:
+def _loader(dataset: Any, batch: int, workers: int, shuffle: bool, collate: Any) -> Any:
     from torch.utils.data import DataLoader
 
+    return DataLoader(
+        dataset,
+        batch_size=batch,
+        shuffle=shuffle,
+        num_workers=workers,
+        collate_fn=collate,
+        # Windows 下 spawn 每轮重启进程代价高；workers>0 时常驻
+        persistent_workers=workers > 0,
+    )
+
+
+def _build_loaders(cfg: dict[str, Any], task: str, eval_split: str = "val") -> tuple[Any, Any, Any]:
+    """构建 (train_loader, eval_loader, dataset_module)。
+
+    `eval_split` 让 `evaluate --split test` 真正取 test 集；早前实现忽略了这个参数，
+    评估的是 val，只是把 "test" 写进了输出 JSON。
+    """
     from grid_ice_vision.data.datasets import detection as det_ds
     from grid_ice_vision.data.datasets import segmentation as seg_ds
     from grid_ice_vision.data.datasets import weather as wx_ds
-    from grid_ice_vision.data.manifest import load_manifest
+    from grid_ice_vision.data.manifest import assert_no_leakage, load_manifest
 
     records = load_manifest(get(cfg, "data.manifest"))
+    try:
+        assert_no_leakage(records)
+    except AssertionError as exc:
+        raise typer.BadParameter(f"manifest 分组泄漏：{exc}") from exc
+
     root = get(cfg, "data.root", "data/processed")
     size = int(get(cfg, "data.size", 384))
     bs = int(get(cfg, "train.batch", 4))
     nw = int(get(cfg, "data.num_workers", 0))
     tr = [r for r in records if r.split == "train"]
-    va = [r for r in records if r.split == "val"]
+    ev = [r for r in records if r.split == eval_split]
+    if not ev:
+        raise typer.BadParameter(
+            f"split={eval_split!r} 为空（共 {len(records)} 条，"
+            f"分布 {sorted({r.split for r in records})}）"
+        )
 
     if task == "precip":
         return (
-            DataLoader(
-                wx_ds.WeatherDataset(tr, root, size, True),
-                batch_size=bs,
-                shuffle=True,
-                num_workers=nw,
-                collate_fn=wx_ds.collate,
-            ),
-            DataLoader(
-                wx_ds.WeatherDataset(va, root, size, False),
-                batch_size=bs,
-                num_workers=nw,
-                collate_fn=wx_ds.collate,
-            ),
+            _loader(wx_ds.WeatherDataset(tr, root, size, True), bs, nw, True, wx_ds.collate),
+            _loader(wx_ds.WeatherDataset(ev, root, size, False), bs, nw, False, wx_ds.collate),
             wx_ds,
         )
     if task == "seg":
         return (
-            DataLoader(
-                seg_ds.SegmentationDataset(tr, root, size, True),
-                batch_size=bs,
-                shuffle=True,
-                num_workers=nw,
-                collate_fn=seg_ds.collate,
-            ),
-            DataLoader(
-                seg_ds.SegmentationDataset(va, root, size, False),
-                batch_size=bs,
-                num_workers=nw,
-                collate_fn=seg_ds.collate,
+            _loader(seg_ds.SegmentationDataset(tr, root, size, True), bs, nw, True, seg_ds.collate),
+            _loader(
+                seg_ds.SegmentationDataset(ev, root, size, False), bs, nw, False, seg_ds.collate
             ),
             seg_ds,
         )
     if task == "detector":
         coco = get(cfg, "data.coco")
+        min_ratio = float(get(cfg, "data.min_annotated_ratio", 0.5))
         return (
-            DataLoader(
-                det_ds.DetectionDataset(tr, root, coco, size, True),
-                batch_size=bs,
-                shuffle=True,
-                num_workers=nw,
-                collate_fn=det_ds.collate,
+            _loader(
+                det_ds.DetectionDataset(tr, root, coco, size, True, min_annotated_ratio=min_ratio),
+                bs,
+                nw,
+                True,
+                det_ds.collate,
             ),
-            DataLoader(
-                det_ds.DetectionDataset(va, root, coco, size, False),
-                batch_size=bs,
-                num_workers=nw,
-                collate_fn=det_ds.collate,
+            _loader(
+                det_ds.DetectionDataset(ev, root, coco, size, False, min_annotated_ratio=min_ratio),
+                bs,
+                nw,
+                False,
+                det_ds.collate,
             ),
             det_ds,
         )
@@ -103,38 +112,49 @@ def train(
     config: str = typer.Option(..., "--config"),
 ) -> None:
     """训练单个任务。"""
+    from grid_ice_vision.common.config import configure_hf_mirror
     from grid_ice_vision.features.detection.model import DetectionNet
     from grid_ice_vision.features.ice.model import UNetLite
     from grid_ice_vision.features.precipitation.model import PrecipitationNet
     from grid_ice_vision.training.engine import TrainConfig, fit
     from grid_ice_vision.training.steps import det_step, precip_step, seg_step
 
+    # 必须在 import timm 之前设镜像，否则 pretrained=True 会失败（现在会显式报错）
     cfg = _cfg(config)
+    configure_hf_mirror(str(get(cfg, "hf_endpoint", "https://hf-mirror.com")))
     train_loader, val_loader, _ = _build_loaders(cfg, task)
     backbone = str(get(cfg, "model.backbone", "mobilenetv4_conv_small"))
     pretrained = bool(get(cfg, "model.pretrained", False))
-    if task == "precip":
-        model: Any = PrecipitationNet(backbone, pretrained)
-        step = precip_step
-        monitor, mode = "macro_f1_micro", "max"
-    elif task == "seg":
-        model = UNetLite(backbone, pretrained)
-        step = seg_step
-        monitor, mode = "dice_ice", "max"
-    else:
-        model = DetectionNet(backbone, pretrained)
-        step = det_step
-        monitor, mode = "loss", "min"
+    try:
+        if task == "precip":
+            model: Any = PrecipitationNet(
+                backbone, pretrained, use_film=bool(get(cfg, "model.precip.use_film", True))
+            )
+            step = precip_step
+            monitor, mode = "macro_f1_micro", "max"
+        elif task == "seg":
+            model = UNetLite(backbone, pretrained)
+            step = seg_step
+            monitor, mode = "dice_ice", "max"
+        else:
+            model = DetectionNet(backbone, pretrained)
+            step = det_step
+            monitor, mode = "loss", "min"
+    except RuntimeError as exc:
+        raise typer.BadParameter(str(exc)) from exc
 
+    raw_amp = get(cfg, "train.amp", "auto")
+    amp: bool | str = raw_amp if isinstance(raw_amp, str) else bool(raw_amp)
     tcfg = TrainConfig(
         epochs=int(get(cfg, "train.epochs", 30)),
         lr=float(get(cfg, "train.lr", 1e-3)),
         weight_decay=float(get(cfg, "train.weight_decay", 1e-4)),
-        amp=bool(get(cfg, "train.amp", True)),
+        amp=amp,
         patience=int(get(cfg, "train.patience", 8)),
         out_dir=str(get(cfg, "train.out_dir", "artifacts")),
         task=task,
         version=str(get(cfg, "train.version", "0.1.0")),
+        backbone_lr_mult=float(get(cfg, "train.backbone_lr_mult", 1.0)),
     )
     best = fit(
         model,
@@ -144,7 +164,7 @@ def train(
         tcfg,
         monitor=monitor,
         mode=mode,
-        device=str(get(cfg, "device", "cpu")),
+        device=str(get(cfg, "train.device", get(cfg, "device", "cpu"))),
     )
     console.print_json(json.dumps(best, ensure_ascii=False))
 
@@ -156,7 +176,7 @@ def evaluate(
     """在指定 split 上评估并输出指标 JSON。"""
     cfg = _cfg(config)
     task = str(get(cfg, "task", "seg"))
-    _, loader, _ = _build_loaders(cfg, task)
+    _, loader, _ = _build_loaders(cfg, task, eval_split=split)
     from grid_ice_vision.training.engine import evaluate as run_eval
     from grid_ice_vision.training.steps import det_step, precip_step, seg_step
 

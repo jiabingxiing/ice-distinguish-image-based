@@ -51,6 +51,13 @@ severity:
     G2: {max_coverage: 0.30}
     G3: {max_coverage: 0.50}
     G4: {max_coverage: null}
+  # 密度折算：结果里会带 rho_kg_m3 / rho_source，便于审计
+  rho:
+    default: 900
+    by_type: {glaze: 900, rime: 350, mixed: 600, none: 900, unknown: 900}
+  ice_type:
+    # none_rule：G0→none，其余→unknown（不猜）。heuristic/model 未验证前禁止开启
+    mode: none_rule
 
 alarm:
   version: "1.0.0"

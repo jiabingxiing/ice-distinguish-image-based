@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import os
 from pathlib import Path
 from typing import Any
 
@@ -14,6 +15,30 @@ import yaml
 
 PROJECT_ROOT = Path(__file__).resolve().parents[3]
 CONFIG_DIR = PROJECT_ROOT / "configs"
+
+DEFAULT_HF_ENDPOINT = "https://hf-mirror.com"
+
+
+def configure_hf_mirror(
+    endpoint: str = DEFAULT_HF_ENDPOINT, cache_dir: str | Path | None = None
+) -> str:
+    """把 HuggingFace 端点指向可用镜像，必须在 `import timm` 之前调用。
+
+    实测（2026-10-20）本机三个必要条件，缺一不可：
+    1. `huggingface.co` 直连 502，需 `HF_ENDPOINT=https://hf-mirror.com`；
+    2. 默认缓存目录落在 OneDrive 下（`XDG_CACHE_HOME` 被指到桌面），
+       Windows 上符号链接退化成 0 字节文件 → safetensors 报
+       "header too small"，因此把 `HF_HOME` 指到项目内 `artifacts/hf-cache`；
+    3. 同时禁用符号链接，改为直接复制。
+    """
+    os.environ.setdefault("HF_ENDPOINT", endpoint)
+    os.environ.setdefault(
+        "HF_HOME", str(Path(cache_dir or PROJECT_ROOT / "artifacts" / "hf-cache"))
+    )
+    os.environ.setdefault("HF_HUB_DISABLE_SYMLINKS", "1")
+    os.environ.setdefault("HF_HUB_ETAG_TIMEOUT", "5")
+    os.environ.setdefault("HF_HUB_DOWNLOAD_TIMEOUT", "20")
+    return os.environ["HF_ENDPOINT"]
 
 
 def resolve_config_path(path: str | Path) -> Path:

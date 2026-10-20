@@ -147,15 +147,25 @@ class CoralLoss(nn.Module):
     """CORAL：K−1 个阈值共享权重、单一递增 bias。
 
     target: (B,) 取值 0..K−1；logits: (B, K−1)。
+    `ignore_index=-1`（默认）用于「强度未知」样本：这些样本**不参与**损失，
+    否则会被当成等级 0（none）来监督 —— 与标注规范里
+    "unknown 不参与 CORAL 损失"的约定正好相反。
     """
 
-    def __init__(self, num_classes: int) -> None:
+    def __init__(self, num_classes: int, ignore_index: int | None = -1) -> None:
         super().__init__()
         if num_classes < 2:
             raise ValueError("num_classes 至少为 2")
         self.num_classes = num_classes
+        self.ignore_index = ignore_index
 
     def forward(self, logits: Tensor, target: Tensor) -> Tensor:
+        if self.ignore_index is not None:
+            keep = target != self.ignore_index
+            if not bool(keep.any()):
+                # 保留计算图但不产生梯度：返回 0 而不是 NaN
+                return logits.sum() * 0.0
+            logits, target = logits[keep], target[keep]
         levels = torch.arange(self.num_classes - 1, device=logits.device)
         binary = (target.unsqueeze(1) > levels.unsqueeze(0)).to(logits.dtype)
         return F.binary_cross_entropy_with_logits(logits, binary)

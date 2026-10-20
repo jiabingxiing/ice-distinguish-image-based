@@ -21,26 +21,47 @@ from grid_ice_vision.training.losses import (
 def precip_step(
     model: nn.Module, batch: dict[str, Any], phase: str
 ) -> tuple[Tensor, dict[str, float]]:
-    """天气多标签 BCE + 强度 CORAL。"""
+    """天气多标签 BCE + 强度 CORAL。
+
+    `intensity < 0`（unknown）的样本由 `CoralLoss(ignore_index=-1)` 自动跳过，
+    不计入强度损失与准确率 —— 否则会被当成 "none" 监督。
+    """
     image = batch["image"]
     weather: Tensor = batch["weather"]
     intensity: Tensor = batch["intensity"]
     met = batch.get("met")
+    # 可选类别掩码：某类没有正样本（如 WEAPD 缺 clear）时屏蔽该维
+    mask: Tensor | None = batch.get("weather_mask")
 
     out = model(image, met)
-    bce = torch.nn.functional.binary_cross_entropy_with_logits(out["weather_logits"], weather)
+    raw = torch.nn.functional.binary_cross_entropy_with_logits(
+        out["weather_logits"], weather, reduction="none"
+    )
+    bce = raw.mean() if mask is None else (raw * mask).sum() / mask.sum().clamp_min(1.0)
+
+    valid = intensity >= 0
     coral = CoralLoss(int(out["intensity_logits"].shape[1]) + 1)(out["intensity_logits"], intensity)
     loss = bce + 0.5 * coral
 
     with torch.no_grad():
         pred = (out["weather_logits"].sigmoid() > 0.5).float()
-        tp = (pred * weather).sum()
-        fp = (pred * (1 - weather)).sum()
-        fn = ((1 - pred) * weather).sum()
+        if mask is not None:
+            pred, target = pred * mask, weather * mask
+        else:
+            target = weather
+        tp = (pred * target).sum()
+        fp = (pred * (1 - target)).sum()
+        fn = ((1 - pred) * target).sum()
         f1 = (2 * tp / (2 * tp + fp + fn + 1e-6)).item()
-        level = coral_predict(out["intensity_logits"])
-        acc = (level == intensity).float().mean().item()
-    return loss, {"bce": float(bce.detach()), "macro_f1_micro": f1, "intensity_acc": acc}
+        metrics = {
+            "bce": float(bce.detach()),
+            "macro_f1_micro": f1,
+            "n_intensity_valid": float(valid.sum()),
+        }
+        if bool(valid.any()):
+            level = coral_predict(out["intensity_logits"])
+            metrics["intensity_acc"] = (level[valid] == intensity[valid]).float().mean().item()
+    return loss, metrics
 
 
 def seg_step(
@@ -66,7 +87,12 @@ def det_step(
 
     outs = model(batch["image"])
     targets = [DetTargets(boxes=t["boxes"], labels=t["labels"]) for t in batch["targets"]]
-    criterion = DetectionLoss(num_classes=outs[0]["cls"].shape[-1])
+    # reg_max / strides 必须与模型一致，否则分布回归的通道数会对不上
+    criterion = DetectionLoss(
+        num_classes=outs[0]["cls"].shape[-1],
+        reg_max=int(getattr(model, "reg_max", 8)),
+        strides=tuple(getattr(model, "strides", (8, 16, 32))),
+    )
     loss, metrics = criterion(outs, targets)
     return loss, metrics
 
