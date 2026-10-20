@@ -6,7 +6,7 @@
 
 | 项目 | 硬门槛 | 软目标 | 文献参考 | 当前状态 |
 |---|---|---|---|---|
-| 天气 8 类 Macro-F1（Set-A） | ≥ 0.70 | ≥ 0.82 | 0.958（ViT-base，11 类，同分布） | 未训练 |
+| 天气 8 类 Macro-F1（Set-A） | ≥ 0.70 | ≥ 0.82 | 0.958（ViT-base，11 类，同分布） | 未训练；WEAPD 域外基线 0.891（7 类，6 epoch）**不计入** |
 | 天气 8 类 Macro-F1（Set-C 退化） | ≥ 0.55 | ≥ 0.70 | — | 未训练 |
 | 校准 ECE | ≤ 0.15 | ≤ 0.08 | — | 未训练 |
 | ROI mAP@0.5（Set-B） | ≥ 0.60 | ≥ 0.80 | 0.935（论文自建集，不可比） | 未训练 |
@@ -52,3 +52,32 @@
   3. 检测走 ONNX + INT8（须先做量化感知训练，见 §16.1 的保留意见）。
 
 在硬件方案确定前，任何"实时"承诺都不成立。
+
+## 预训练权重通路（2026-10-20 实测）
+
+`huggingface.co` 直连 **502**，`hf-mirror.com` **200**。三个条件缺一不可：
+
+| 条件 | 不满足时的表现 |
+|---|---|
+| `HF_ENDPOINT=https://hf-mirror.com` | `timm.create_model(pretrained=True)` 直接失败 |
+| `HF_HOME=<项目>/artifacts/hf-cache` | 默认缓存在 OneDrive 下，符号链接退化成 0 字节 |
+| `HF_HUB_DISABLE_SYMLINKS=1` | 同上，safetensors 报 `header too small` |
+
+`common/config.py::configure_hf_mirror()` 一次性设置这三项，CLI 的 `train` 入口自动调用。
+验证方式：训练日志出现 `骨干：mobilenetv4_conv_small | pretrained=True | fallback=False`
+（而不是 `mini_resnet`）。实测首次下载 27.7 s。
+
+## CPU 训练实测（2026-10-20）
+
+WEAPD 7 类，3422 张训练图，384²，bs16，`num_workers=2`：
+
+| 项 | 实测 | 说明 |
+|---|---|---|
+| 单 epoch | **约 6 min** | 214 步 × ≈1.4 s + 验证 46 步 |
+| 15 epoch | ≈ 90 min | 含余弦退火与早停（patience 4） |
+| 1 epoch 后 val micro-F1 | 0.705 | 说明预训练骨干确实生效（随机初始化达不到） |
+| 1 epoch 后 test macro-F1 | 0.670 | 仅作管线可用性证据，**非精度结论** |
+| AMP | 显式关闭 | 本机 Zen 2 / AVX2，无 AVX512-BF16，开了只会更慢 |
+
+**结论：CPU 能训，但只适合"1–3 千张、小分辨率、分类任务"的量级。**
+分割（512² bs4）与检测（640² bs4）每 epoch 约 5.5 min/1000 张，真实数据上千张即 3–4 h 起。

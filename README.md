@@ -56,6 +56,29 @@ uv run giv infer --image samples/demo.jpg --config configs/model/pipeline.yaml
 uv run giv serve --config configs/model/pipeline.yaml --port 8000
 ```
 
+### 天气分类（P1，WEAPD / CC0）
+
+```bash
+# 1. 下载并解压 WEAPD（DOI 10.7910/DVN/M8JQCR，约 620 MB）
+#    Windows 无 7-Zip 时可用 conda 自带的 bsdtar：bsdtar -xf weapd.rar
+
+# 2. 建 manifest：11 类 → 8 类，丢 4 类，pHash 近重复聚类分组
+uv run python scripts/build_weather_manifest.py \
+    --src data/raw/weapd/dataset --out data/manifests/weather_v1.jsonl
+
+# 3. 校验（分组泄漏 + 哈希）
+uv run python scripts/validate_dataset.py --manifest data/manifests/weather_v1.jsonl
+
+# 4. 训练（CPU 约 6 min/epoch）
+uv run giv train precip --config configs/train/precip.yaml
+
+# 5. 评估：逐类 P/R/F1 + 混淆矩阵 + ECE
+uv run python scripts/eval_weather.py --config configs/train/precip.yaml --split test
+```
+
+> 预训练权重需经镜像：`configure_hf_mirror()` 已在 `train` 入口自动调用。
+> 若手动跑脚本，先 `export HF_ENDPOINT=https://hf-mirror.com`。
+
 ## 4. 目录约定
 
 ```
