@@ -18,7 +18,11 @@ def _iou_matrix(a: np.ndarray, b: np.ndarray) -> np.ndarray:
 
 
 def average_precision(scores: np.ndarray, tp: np.ndarray, n_gt: int) -> float:
-    """按 101 点插值的 AP。"""
+    """按 101 点插值的 AP。
+
+    与 pycocotools 一致：`recall=1.0` 处带 0 精度哨兵，因此**完美检测得 100/101**
+    而不是 1.0。这是口径特性，不要"修"成 1.0，否则与历史数字不可比。
+    """
     if n_gt == 0:
         return float("nan")
     order = np.argsort(-scores)
@@ -35,15 +39,26 @@ def average_precision(scores: np.ndarray, tp: np.ndarray, n_gt: int) -> float:
     return float(np.mean(np.interp(grid, mrec, mpre)))
 
 
+#: 标准 10 点 IoU 阈值（COCO 口径）。早期只取 3 点（0.50/0.75/0.95）却仍输出
+#: `mAP@0.5:0.95`，口径被算宽，报告里会高估。
+DEFAULT_IOU_THRESHOLDS: tuple[float, ...] = tuple(round(0.50 + 0.05 * i, 2) for i in range(10))
+
+
 def evaluate_detections(
     preds: list[dict[str, np.ndarray]],
     gts: list[dict[str, np.ndarray]],
     n_classes: int,
-    iou_thresholds: tuple[float, ...] = (0.5, 0.75, 0.95),
+    iou_thresholds: tuple[float, ...] = DEFAULT_IOU_THRESHOLDS,
+    class_names: tuple[str, ...] | None = None,
 ) -> dict[str, float]:
-    """`preds[i]` / `gts[i]` 均含 `boxes (N,4)` 与 `labels (N,)`。"""
+    """`preds[i]` / `gts[i]` 均含 `boxes (N,4)` 与 `labels (N,)`，`preds` 另可含 `scores (N,)`。
+
+    给出 `class_names` 时，额外返回 `AP@0.50/<类名>`。**无正样本的类不会出现该键**——
+    调用方必须把它报成"无正样本"，而不是用 0 顶替。
+    """
     results: dict[str, float] = {}
     aps_per_iou: list[float] = []
+    per_class_at: dict[float, dict[int, float]] = {}
     for thr in iou_thresholds:
         aps: list[float] = []
         for c in range(n_classes):
@@ -78,10 +93,17 @@ def evaluate_detections(
                 continue
             if not all_scores:
                 aps.append(0.0)
+                per_class_at.setdefault(thr, {})[c] = 0.0
                 continue
-            aps.append(average_precision(np.concatenate(all_scores), np.concatenate(all_tp), n_gt))
+            ap = average_precision(np.concatenate(all_scores), np.concatenate(all_tp), n_gt)
+            aps.append(ap)
+            per_class_at.setdefault(thr, {})[c] = ap
         if aps:
             aps_per_iou.append(float(np.nanmean(aps)))
         results[f"mAP@{thr:.2f}"] = float(np.nanmean(aps)) if aps else 0.0
     results["mAP@0.5:0.95"] = float(np.mean(aps_per_iou)) if aps_per_iou else 0.0
+    if class_names:
+        for c, ap in per_class_at.get(0.5, {}).items():
+            name = class_names[c] if c < len(class_names) else str(c)
+            results[f"AP@0.50/{name}"] = float(ap)
     return results

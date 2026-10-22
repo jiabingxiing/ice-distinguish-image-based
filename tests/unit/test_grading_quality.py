@@ -179,3 +179,46 @@ def test_prior_bin_index_bounds() -> None:
     prior = TemperaturePrior()
     assert prior.bin_index(-100) == 0
     assert prior.bin_index(100) == len(prior.table) - 1
+
+
+# ------------------------------------------------------------------ 域差回归
+def _sky_with_wire(h: int = 240, w: int = 320) -> np.ndarray:
+    """天空 + 地面植被 + 导线：杆塔机位的典型构图（天空占上半，地面有纹理）。"""
+    rng = np.random.default_rng(0)
+    img = np.zeros((h, w, 3), dtype=np.uint8)
+    horizon = int(h * 0.55)
+    for y in range(horizon):
+        img[y, :, :] = int(200 - 50 * y / horizon)
+    # 地面：有纹理的植被/土壤。刻意保留高频（不做模糊）——block_highfreq_energy
+    # 用的是原始拉普拉斯方差，平滑过的噪声能量会掉到 0.1 以下。
+    ground = rng.integers(30, 120, (h - horizon, w, 3), dtype=np.uint8)
+    img[horizon:, :, :] = ground
+    cv2.line(img, (10, 120), (w - 10, 140), (60, 60, 65), 3)
+    img = np.clip(img.astype(np.int16) + rng.normal(0, 2, img.shape), 0, 255).astype(np.uint8)
+    return img
+
+
+def test_sky_scene_is_not_degraded_by_single_flat_block() -> None:
+    """大面积天空是正常场景，不得因「某个网格块平坦」就判 degraded。
+
+    这是 2026-10-22 在真实 4K 图上发现的缺陷：用 min(block_energy) 判据时，
+    TTPLA 真实图 88%、WEAPD 97% 被判 degraded。改为「平坦块占比」后应恢复。
+    """
+    q = assess_quality(_sky_with_wire())
+    assert q.status is QualityStatus.USABLE
+    # 允许记录 local_flat 作为诊断，但不得因此降级
+    assert not any(r.startswith("frame_flat") for r in q.reasons)
+
+
+def test_fully_flat_frame_is_degraded() -> None:
+    """整帧平坦（镜头被糊住/结冰）仍应被抓到。"""
+    flat = np.full((120, 160, 3), 128, dtype=np.uint8)
+    q = assess_quality(flat)
+    assert q.status is not QualityStatus.USABLE
+    assert any("flat" in r for r in q.reasons)
+
+
+def test_flat_ratio_thresholds_configurable() -> None:
+    th = QualityThresholds.from_config({"quality": {"flat_block_ratio": 0.3}})
+    assert th.flat_block_ratio == 0.3
+    assert th.flat_block_ratio_unusable == 0.90

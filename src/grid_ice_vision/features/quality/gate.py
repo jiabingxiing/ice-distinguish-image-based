@@ -29,6 +29,11 @@ class QualityThresholds:
     exposure_unusable: float = 0.45
     block_energy_degraded: float = 0.15
     block_energy_unusable: float = 0.05
+    # 「镜头被糊住/结冰」应是**大面积**平坦，而不是任意一个网格块平坦。
+    # 杆塔机位大量看到天空，用 min(block) 判会让 88–97% 的真实图变成 degraded
+    # （实测见 docs/field_domain_check.md）。
+    flat_block_ratio: float = 0.60
+    flat_block_ratio_unusable: float = 0.90
     night_mean_gray: float = 20.0
     grid: tuple[int, int] = (6, 8)  # (rows, cols)
     lens_window: int = 5
@@ -46,6 +51,8 @@ class QualityThresholds:
             exposure_unusable=float(q.get("exposure_unusable", 0.45)),
             block_energy_degraded=float(q.get("block_energy_degraded", 0.15)),
             block_energy_unusable=float(q.get("block_energy_unusable", 0.05)),
+            flat_block_ratio=float(q.get("flat_block_ratio", 0.60)),
+            flat_block_ratio_unusable=float(q.get("flat_block_ratio_unusable", 0.90)),
             night_mean_gray=float(q.get("night_mean_gray", 20.0)),
             grid=tuple(q.get("grid", (6, 8))),  # type: ignore[arg-type]
             lens_window=int(q.get("lens_window", 5)),
@@ -78,7 +85,11 @@ def normalized_blur_score(gray: np.ndarray, ref_var: float = 1000.0) -> float:
 
 
 def block_highfreq_energy(gray: np.ndarray, grid: tuple[int, int] = (6, 8)) -> np.ndarray:
-    """网格高频能量图（0–1），用于发现局部结冰/污损/遮挡。"""
+    """网格高频能量图（**原始拉普拉斯方差**，非归一化）。
+
+    注意：该值随分辨率与纹理尺度变化，阈值（`block_energy_degraded`）只对
+    相近分辨率的图像可复用；换机位/换分辨率需重新标定。
+    """
     rows, cols = grid
     h, w = gray.shape
     out = np.zeros((rows, cols), dtype=np.float32)
@@ -136,7 +147,6 @@ def assess_quality(
     under = float((gray < 15).mean())
     exposure_ratio = max(over, under)
     energy = block_highfreq_energy(gray, th.grid)
-    min_block = float(energy.min())
     mean_gray = float(gray.mean())
 
     reasons: list[str] = []
@@ -162,14 +172,19 @@ def assess_quality(
         if status is QualityStatus.USABLE:
             status = QualityStatus.DEGRADED
 
-    if min_block <= th.block_energy_unusable:
-        reasons.append(f"local_flat(min_block={min_block:.2f})")
+    # 用「平坦网格占比」而不是「最平坦的单块」：单块平坦是正常场景（天空、水面、
+    # 雪面），只有**整帧**平坦才可能是镜头糊住/结冰/被遮挡。
+    #
+    # 只有 frame_flat 会改状态；local_flat 仅作诊断记录。原因：杆塔机位经常
+    # 对着天空取景，天空占 60–80% 是常态，若据此降级，绝大多数正常帧都会被
+    # 标记 requires_review（实测 TTPLA 真实图 88% 中招，见 docs/field_domain_check.md）。
+    flat_ratio = float((energy < th.block_energy_degraded).mean())
+    if flat_ratio >= th.flat_block_ratio_unusable:
+        reasons.append(f"frame_flat(ratio={flat_ratio:.2f})")
         if status is QualityStatus.USABLE:
             status = QualityStatus.DEGRADED
-    elif min_block < th.block_energy_degraded:
-        reasons.append(f"local_low_texture(min_block={min_block:.2f})")
-        if status is QualityStatus.USABLE:
-            status = QualityStatus.DEGRADED
+    elif flat_ratio >= th.flat_block_ratio:
+        reasons.append(f"local_flat(ratio={flat_ratio:.2f})")
 
     lens = False
     if tracker is not None and camera_id:

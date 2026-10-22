@@ -5,8 +5,12 @@ quality:
   blur_unusable: 0.80
   exposure_degraded: 0.25    # 过曝/欠曝像素占比
   exposure_unusable: 0.45
-  block_energy_degraded: 0.15  # 网格高频能量最小值
+  block_energy_degraded: 0.15  # 单个网格块的高频能量下限（仅用于统计占比）
   block_energy_unusable: 0.05
+  # 平坦网格「占比」：>=0.60 只记录原因（天空占比高是常态，不降级）；
+  # >=0.90 判为镜头异常（糊住/结冰/被遮挡）
+  flat_block_ratio: 0.60
+  flat_block_ratio_unusable: 0.90
   night_mean_gray: 20.0      # 平均灰度低于此值判为夜间
   grid: [6, 8]               # rows, cols
   lens_window: 5             # 镜头结冰判定的滑动窗口帧数

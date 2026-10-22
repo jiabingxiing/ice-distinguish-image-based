@@ -1,0 +1,37 @@
+# 检测冒烟训练（TTPLA / Apache-2.0；CPU 预算约 1 h）
+#
+# 目的只有一个：证明 `timm 骨干 + 自建 GFL 头` 在真实数据上能收敛。
+# 指标只作"域外参考"，**不得**写入验收材料：
+# TTPLA 是航拍俯视域，与杆塔侧视差异大；且官方 split 为图像级随机划分，
+# 无法按场景分组防泄漏（见 docs/public_validation_matrix.md §2.2）。
+#
+# 与生产配置 configs/train/detector.yaml 的区别：epoch 10（而非 24）、
+# 版本号 det-smoke-，产物不覆盖 det-0.1.0。
+task: detector
+device: cpu
+hf_endpoint: https://hf-mirror.com
+
+data:
+  root: data/raw/ttpla
+  manifest: data/manifests/detect_v1.jsonl
+  coco: data/processed/ttpla_coco/annotations.json
+  size: 640
+  num_workers: 4
+  min_annotated_ratio: 0.5   # 1234 张里应全部匹配到标注；低于阈值即报错
+
+model:
+  backbone: mobilenetv4_conv_small
+  pretrained: true
+  # 供 scripts/eval_detector.py 读取；训练本身不消费该字段
+  weights: artifacts/detector/det-smoke-0.1.0/best.pt
+
+train:
+  epochs: 10
+  patience: 3
+  batch: 4
+  lr: 0.0005
+  weight_decay: 0.0001
+  backbone_lr_mult: 0.1
+  amp: off
+  out_dir: artifacts
+  version: det-smoke-0.1.0

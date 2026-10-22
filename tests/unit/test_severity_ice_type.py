@@ -85,3 +85,26 @@ def test_ice_type_net_is_not_wired_into_pipeline() -> None:
     import grid_ice_vision.application.pipeline as pipeline_mod
 
     assert "IceTypeGradeNet" not in inspect.getsource(pipeline_mod)
+
+
+def test_pipeline_config_keeps_ice_type_off() -> None:
+    """防回归：配置文件层面也必须保持关闭。
+
+    只查源码不够——改一行 YAML 就能把 `mode` 改成 `model` 而绕过上面的检查；
+    这里从**真实配置**构造策略，等价于给生产配置加一道门禁（ADR-0003 G4）。
+    """
+    from grid_ice_vision.common.config import get, load_config
+
+    cfg = load_config("configs/model/pipeline.yaml")
+    assert get(cfg, "severity.ice_type.mode") == "none_rule"
+    pol = RhoPolicy.from_config(cfg)
+    assert pol.mode == "none_rule"
+
+
+def test_no_path_yields_model_rho_source() -> None:
+    """`ice_type_model` 只能由已验证的类型头产生；现阶段出现即为缺陷。"""
+    pol = RhoPolicy()
+    for t in (IceType.NONE, IceType.UNKNOWN, IceType.GLAZE, IceType.RIME, IceType.MIXED):
+        rho, src = pol.resolve(t)
+        assert src != "ice_type_model"
+        assert rho > 0

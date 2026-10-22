@@ -93,7 +93,7 @@ src/grid_ice_vision/
   deployment/    ONNX 导出、运行时、benchmark
   service/       FastAPI
 scripts/      数据转换、合成、校验、导出
-docs/         架构、标注规范、等级 rubric、许可台账、ADR、模型卡
+docs/         架构、标注规范、等级 rubric、许可台账、ADR、模型卡、公开数据验证矩阵、CPU 训练预算
 tests/        unit（每次提交）/ integration（每次 PR）/ e2e（每日回归）
 ```
 
