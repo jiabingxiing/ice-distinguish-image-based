@@ -78,9 +78,7 @@ class MatchResult:
     reason: str
 
 
-def bbox_iou(
-    a: tuple[float, float, float, float], b: tuple[float, float, float, float]
-) -> float:
+def bbox_iou(a: tuple[float, float, float, float], b: tuple[float, float, float, float]) -> float:
     """两个 (x1, y1, x2, y2) 框的 IoU；任一退化框返回 0。"""
     ax1, ay1, ax2, ay2 = a
     bx1, by1, bx2, by2 = b
@@ -199,9 +197,7 @@ def match_baseline(
                 best = MatchResult(e, iou, corr, None, "ecc_corr_below_threshold")
             continue
         # 把基准框经仿射变换映射到当前帧坐标
-        cx = np.array(
-            [[e.bbox[0], e.bbox[1]], [e.bbox[2], e.bbox[3]]], dtype=np.float32
-        )
+        cx = np.array([[e.bbox[0], e.bbox[1]], [e.bbox[2], e.bbox[3]]], dtype=np.float32)
         mapped = (warp @ np.vstack([cx.T, np.ones(2, dtype=np.float32)])).T
         xs, ys = mapped[:, 0], mapped[:, 1]
         reg = (float(xs.min()), float(ys.min()), float(xs.max()), float(ys.max()))

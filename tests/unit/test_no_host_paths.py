@@ -52,8 +52,7 @@ def test_no_host_drive_literal(path: Path) -> None:
         if _DISK.search(line):
             offenders.append(f"{path.relative_to(PROJ)}:{i}: {raw.strip()}")
     assert not offenders, (
-        "禁止在源码/配置/脚本中写宿主盘符路径，请改用 common/paths.py：\n"
-        + "\n".join(offenders)
+        "禁止在源码/配置/脚本中写宿主盘符路径，请改用 common/paths.py：\n" + "\n".join(offenders)
     )
 
 

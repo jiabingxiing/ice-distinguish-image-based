@@ -121,9 +121,7 @@ def parse_ts(s: str) -> datetime | None:
 def main() -> int:
     root = paths.scut_root()
     df = pd.read_csv(paths.scut_csv(), encoding="utf-8-sig")
-    df["rel_path"] = [
-        f"{int(r.Year)}/{r.Image_Name}.jpg" for r in df.itertuples(index=False)
-    ]
+    df["rel_path"] = [f"{int(r.Year)}/{r.Image_Name}.jpg" for r in df.itertuples(index=False)]
     df = df[[(root / p).exists() for p in df["rel_path"]]].reset_index(drop=True)
     print(f"[m3] 可用样本 {len(df)}")
 

@@ -72,9 +72,7 @@ def audit(out_path: Path) -> dict[str, object]:
             continue
         resolutions[(im.shape[1], im.shape[0])] += 1
 
-    disk_total = sum(
-        1 for y in range(2014, 2019) for _ in (root / str(y)).glob("*.jpg")
-    )
+    disk_total = sum(1 for y in range(2014, 2019) for _ in (root / str(y)).glob("*.jpg"))
 
     total_decoded = sum(resolutions.values())
     low_res = sum(v for (w, _), v in resolutions.items() if w <= 704)

@@ -160,9 +160,9 @@ def test_coverage_monotonic_in_ice_area() -> None:
 def test_bridge_ratio_denominator() -> None:
     """桥接率 = 桥接像素 / (裸露设备 + 附冰)，桥接像素不重复计入分母。"""
     m = np.full((64, 48), IDX_BACKGROUND, dtype=np.uint8)
-    m[0:20, :] = IDX_ICE          # 20 行附冰
-    m[20:40, :] = IDX_BRIDGE      # 20 行桥接
-    m[40:64, :] = IDX_EXPOSED     # 24 行裸露
+    m[0:20, :] = IDX_ICE  # 20 行附冰
+    m[20:40, :] = IDX_BRIDGE  # 20 行桥接
+    m[40:64, :] = IDX_EXPOSED  # 24 行裸露
     r = compute_insulator_pa(m)
     expected = (20 * 48) / (20 * 48 + 24 * 48)
     assert r.bridge_ratio == pytest.approx(expected, rel=1e-9)

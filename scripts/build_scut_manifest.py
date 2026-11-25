@@ -173,9 +173,7 @@ def main(argv: list[str] | None = None) -> int:
             # 协议 A 的键是 **终端**（camera_id）；协议 B 的键是单张图。
             recs = [r.model_copy(update={"split": assign[r.camera_id]}) for r in records]
         else:
-            recs = [
-                r.model_copy(update={"split": assign[r.image_id]}) for r in records
-            ]
+            recs = [r.model_copy(update={"split": assign[r.image_id]}) for r in records]
         assert_no_leakage(recs)
         s = summarize(recs)
         by_split_type: dict[str, Counter[str]] = defaultdict(Counter)

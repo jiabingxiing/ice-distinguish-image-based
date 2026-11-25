@@ -156,7 +156,11 @@ def test_low_ecc_corr_rejected_by_default() -> None:
     img = textured(seed=0)
     other = np.random.default_rng(7).integers(0, 255, (96, 96, 3), dtype=np.uint8)
     r = match_baseline(
-        img, (8, 8, 88, 88), "M1", [make_entry()], lambda e: other,
+        img,
+        (8, 8, 88, 88),
+        "M1",
+        [make_entry()],
+        lambda e: other,
         BaselineConfig(ecc_corr_min=0.99),
     )
     assert r.entry is None

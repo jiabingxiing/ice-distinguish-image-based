@@ -252,9 +252,7 @@ def compute_insulator_pa(
     # （exposed + ice + bridge），否则有桥接冰时两者不可比、Pa 失真。
     n_object = int(obj.sum())
 
-    coverage: float | None = (
-        float(n_ice + n_bridge) / float(n_object) if n_object > 0 else None
-    )
+    coverage: float | None = float(n_ice + n_bridge) / float(n_object) if n_object > 0 else None
     """有效覆冰覆盖率 = (N_ice + N_bridge) / N_object（计划 §3.4.4 的定义）。"""
 
     bridge_ratio: float | None = None

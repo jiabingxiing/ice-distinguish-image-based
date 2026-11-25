@@ -154,9 +154,7 @@ class ThicknessEKF:
 
         return EKFState(float(self._x[0]), float(self._x[1]), True, False, clamped, dt)
 
-    def replay(
-        self, history: list[float], timestamps: list[str] | None = None
-    ) -> EKFState:
+    def replay(self, history: list[float], timestamps: list[str] | None = None) -> EKFState:
         """把历史序列重放进 EKF，返回最后一帧状态。
 
         `timestamps` 为与 `history` 等长的 ISO 时间串；给出时按真实间隔推进，

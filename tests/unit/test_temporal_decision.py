@@ -195,6 +195,7 @@ def test_ekf_fixed_dt_overestimates_growth_by_order() -> None:
     实测 15 min → 3.915 mm/h，120 min → 0.499 mm/h（比值 7.8）。
     这正是原 `dt_minutes=15` 硬编码在 1–6 h 真实采样下的失真量。
     """
+
     def run(dt: float) -> float:
         ekf = ThicknessEKF(EKFConfig(growth_rate_max_mm_per_h=50.0, measurement_noise_mm=0.2))
         st = None
@@ -212,6 +213,7 @@ def test_ekf_fixed_dt_overestimates_growth_by_order() -> None:
 
 def test_ekf_growth_rate_scales_inverse_with_dt() -> None:
     """同一观测斜率下，增长率应与 Δt 成反比（物理一致性）。"""
+
     def run(dt: float) -> float:
         ekf = ThicknessEKF(EKFConfig(growth_rate_max_mm_per_h=50.0, measurement_noise_mm=0.2))
         st = None

@@ -168,9 +168,7 @@ def external(key: str, *, must_exist: bool = True) -> Path:
         p = Path(env).expanduser()
         if p.exists() or not must_exist:
             return p.resolve() if p.exists() else p
-        raise ExternalDataMissingError(
-            f"环境变量 {_ENV_PREFIX}{key}={env} 指向的目录不存在。"
-        )
+        raise ExternalDataMissingError(f"环境变量 {_ENV_PREFIX}{key}={env} 指向的目录不存在。")
 
     local = _load_local_map()
     if local.get(key):

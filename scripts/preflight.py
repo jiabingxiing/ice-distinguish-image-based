@@ -28,9 +28,7 @@ from grid_ice_vision.common import paths  # noqa: E402
 def find_stale_pth(venv: Path) -> list[tuple[Path, str, bool]]:
     """返回 [(pth 文件, 内容行, 是否指向当前项目)]，仅含可疑项。"""
     out: list[tuple[Path, str, bool]] = []
-    site_dirs = list(venv.glob("Lib/site-packages")) + list(
-        venv.glob("lib/python*/site-packages")
-    )
+    site_dirs = list(venv.glob("Lib/site-packages")) + list(venv.glob("lib/python*/site-packages"))
     for site in site_dirs:
         for pth in site.glob("_editable_impl_*.pth"):
             for line in pth.read_text(encoding="utf-8").splitlines():
@@ -48,10 +46,7 @@ def find_stale_pth(venv: Path) -> list[tuple[Path, str, bool]]:
 
 
 def check_import() -> tuple[bool, str]:
-    code = (
-        "import grid_ice_vision, sys; "
-        "print(grid_ice_vision.__file__)"
-    )
+    code = "import grid_ice_vision, sys; print(grid_ice_vision.__file__)"
     # 必须显式指定 utf-8：Windows 子进程默认按 ANSI(GBK) 解码，
     # 项目路径含中文时 stdout 读取会抛 UnicodeDecodeError。
     # 同时强制子进程用 utf-8 输出，否则子进程按 cp936 写、父进程按 utf-8 读，

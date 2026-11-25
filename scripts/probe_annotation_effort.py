@@ -53,7 +53,7 @@ def main() -> int:
     df["_w"] = [s[0] if s else 0 for s in shapes]
     df["_h"] = [s[1] if s else 0 for s in shapes]
     df = df[(df["_w"] > 0) & (df["_h"] > 0)].reset_index(drop=True)
-    print(f"分辨率分层：{df.groupby(['_w','_h']).size().to_dict()}")
+    print(f"分辨率分层：{df.groupby(['_w', '_h']).size().to_dict()}")
 
     rows = []
     # 按分辨率分层抽样：直接 head() 会全取到 640x480（时间序靠前的终端都是低清），
@@ -100,9 +100,7 @@ def main() -> int:
 
     report = {
         "n_sampled": len(rows),
-        "resolution_top": [
-            {"w": w, "h": h, "count": c} for (w, h), c in res.most_common()
-        ],
+        "resolution_top": [{"w": w, "h": h, "count": c} for (w, h), c in res.most_common()],
         "megapixels": {"min": float(mp.min()), "p50": float(np.median(mp)), "max": float(mp.max())},
         "laplacian_var": {
             "min": float(lap.min()),
