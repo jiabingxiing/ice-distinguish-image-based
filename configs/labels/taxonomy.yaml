@@ -31,11 +31,15 @@ segmentation:
   exposed_asset_note: "必须标注，否则覆盖率分母只能用整张图，毫无意义"
 
 ice_type:
-  labels: [none, glaze, rime, mixed, unknown]
-  merge_rule: "单类样本 < 50 时并入 mixed"
+  presence_states: [none, present]
+  four_classes: [glaze, rime, wet_snow, mixed]
+  labels: [glaze, rime, wet_snow, mixed, unknown]
+  rare_class_policy: keep_label_and_augment_or_collect
+  reject_policy: confidence_and_margin_threshold
   rho_kg_m3:
     glaze: 900
     rime: 350
+    wet_snow: 350
     mixed: 600
     none: 900
     unknown: 900

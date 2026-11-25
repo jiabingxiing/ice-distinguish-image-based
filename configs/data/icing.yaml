@@ -10,7 +10,6 @@ synthetic:
   require_zero_error_truth: true
   texture_source: data/raw/textures
 
-# 类别合并规则：单类样本 < 50 时并入 mixed
-merge_rule:
-  min_samples_per_class: 50
-  fallback_class: mixed
+# 少样本策略：禁止将少数类并入 mixed，避免污染混合凇物理语义
+rare_class_policy: keep_label_and_augment_or_collect
+reject_policy: confidence_and_margin_threshold

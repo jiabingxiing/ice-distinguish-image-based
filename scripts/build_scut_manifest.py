@@ -1,37 +1,46 @@
-"""生成 SCUT 双协议划分索引（计划 §6.4 / T02）。
+"""生成 SCUT 双协议划分索引与纯净四分类清单（计划 P0 / T02）。
 
-协议 A · Monitor-Holdout（主验收划分）
-    按 `monitorId` **整终端**分层抽样，同一终端跨 2014–2018 的全部图像锁在同一 split。
-    这是唯一能杜绝「背景杆塔/山体纹理记忆」的划分方式 —— 实测 382 个终端中
-    有 179 个跨多年份重复出现且机位固定。
-
-协议 B · Temporal-Holdout（专测基准配准与 Pa）
-    按 `monitorId|ice_season` 分组，2014–2017 作 train/val，2018 作 test，
-    用于验证「同终端早期无冰图作模板、评估后续冰期面积变化率」。
+六级过滤管线：
+1. 文件存在校验（剔除缺失图）；
+2. OpenCV 解码、3 通道、最小边长 ≥ 32、非死图（std > 1.0）校验（剔除 52 张损坏图）；
+3. 标签合法性校验：严格映射至 `ICE_TYPE_FOUR_CLASSES`（禁用旧版 `<50 并入 mixed`）；
+4. SHA-256 精确哈希与 64-bit pHash（汉明距离 ≤ 4）近重复集群锁定，跨终端集群并入同一原子组；
+5. 双「无覆冰」噪声候选标记 `noise_candidate=True`（支持 `--exclude-noise-candidates` 过滤）；
+6. 整终端分层抽样（Monitor-Holdout）+ 按年时间划分（Temporal-Holdout）与泄漏断言。
 
 产出：
-  data/manifests/scut_v2.jsonl        全量清单（含 split、标签、sha256 可选）
-  data/splits/scut_monitor_v2.jsonl   协议 A 索引
-  data/splits/scut_temporal_v2.jsonl  协议 B 索引
-
-清单内 `path` 只存**项目相对 POSIX 路径**（经 `paths.rel_posix`），外部根目录
-经 `paths.scut_root()` 运行时解析，换盘后无需改清单。
+  data/manifests/scut_ice_type_v1.jsonl          协议 A 纯净四分类主清单（含 sha256/phash/尺寸）
+  data/manifests/scut_ice_type_temporal_v1.jsonl 协议 B 纯净四分类清单
+  data/manifests/scut_v2_monitor.jsonl           兼容 v2 协议 A 全量清单
+  data/manifests/scut_v2_temporal.jsonl          兼容 v2 协议 B 全量清单
+  data/splits/scut_monitor_v2.jsonl              协议 A 索引（入库锁定）
+  data/splits/scut_temporal_v2.jsonl             协议 B 索引（入库锁定）
+  artifacts/reports/scut_splits.json             划分统计报告
 """
 
 from __future__ import annotations
 
 import argparse
 import json
+import random
 import sys
 from collections import Counter, defaultdict
 from pathlib import Path
+from typing import Any
 
+import numpy as np
 import pandas as pd
 
 PROJ = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(PROJ / "src"))
 
 from grid_ice_vision.common import paths  # noqa: E402
+from grid_ice_vision.common.constants import ICE_TYPE_FOUR_CLASSES  # noqa: E402
+from grid_ice_vision.data.dedup import (  # noqa: E402
+    UnionFind,
+    cluster_near_duplicates,
+    inspect_image_file,
+)
 from grid_ice_vision.data.manifest import (  # noqa: E402
     ManifestRecord,
     assert_no_leakage,
@@ -54,26 +63,122 @@ SHAPE_EN = {
 }
 
 
-def load_csv() -> pd.DataFrame:
+def _is_noise_row(row: Any) -> bool:
+    return (
+        str(row.InsulatorShapeH) == "无覆冰"
+        and str(row.InsulatorShapeV) == "无覆冰"
+        and str(row.LineShapeH) == "无覆冰"
+        and str(row.LineShapeV) == "无覆冰"
+    )
+
+
+def load_csv(
+    *,
+    decode_check: bool = True,
+    with_sha: bool = True,
+    phash_dist: int = 4,
+    exclude_noise_candidates: bool = False,
+) -> tuple[pd.DataFrame, dict[str, Any]]:
+    """读取 SCUT CSV 并执行存在性/解码/标签/去重检查。"""
     df = pd.read_csv(paths.scut_csv(), encoding="utf-8-sig")
     root = paths.scut_root()
-    keep = []
-    for row in df.itertuples(index=False):
-        rel = f"{int(row.Year)}/{row.Image_Name}.jpg"
-        if (root / rel).exists():
-            keep.append(rel)
+
+    kept_idx: list[int] = []
+    rel_paths: list[str] = []
+    widths: list[int] = []
+    heights: list[int] = []
+    shas: list[str] = []
+    phashes_hex: list[str] = []
+    phash_vecs: list[np.ndarray] = []
+    noise_flags: list[bool] = []
+
+    missing_cnt = 0
+    corrupt_cnt = 0
+    corrupt_reasons: Counter[str] = Counter()
+    noise_excluded = 0
+
+    for idx, row in enumerate(df.itertuples(index=False)):
+        rel = paths.rel_posix(f"{int(row.Year)}/{row.Image_Name}.jpg")
+        full_path = root / rel
+        if not full_path.exists():
+            missing_cnt += 1
+            continue
+
+        mapped_type = ICE_TYPE_EN.get(str(row.Ice_Type))
+        if mapped_type not in ICE_TYPE_FOUR_CLASSES:
+            raise ValueError(
+                f"非法 Ice_Type={row.Ice_Type!r}（{rel}），不在 {ICE_TYPE_FOUR_CLASSES}"
+            )
+
+        is_noise = _is_noise_row(row)
+        if decode_check:
+            chk = inspect_image_file(full_path, with_sha=with_sha, with_phash=True)
+            if not chk.ok:
+                corrupt_cnt += 1
+                corrupt_reasons[chk.reason] += 1
+                continue
+            if exclude_noise_candidates and is_noise:
+                noise_excluded += 1
+                continue
+            assert chk.phash is not None
+            widths.append(chk.width)
+            heights.append(chk.height)
+            shas.append(chk.sha256)
+            phashes_hex.append(chk.phash_hex)
+            phash_vecs.append(chk.phash)
         else:
-            keep.append("")
-    df = df.assign(rel_path=keep)
-    return df[df["rel_path"] != ""].reset_index(drop=True)
+            if exclude_noise_candidates and is_noise:
+                noise_excluded += 1
+                continue
+            widths.append(0)
+            heights.append(0)
+            shas.append("")
+            phashes_hex.append("")
+
+        kept_idx.append(idx)
+        rel_paths.append(rel)
+        noise_flags.append(is_noise)
+
+    clean = df.iloc[kept_idx].copy().reset_index(drop=True)
+    if phash_vecs:
+        clusters, dedup_stats = cluster_near_duplicates(
+            np.stack(phash_vecs, axis=0),
+            max_dist=phash_dist,
+            sha256_list=shas if with_sha else None,
+        )
+        near_dup_groups = [f"nd{int(c):05d}" for c in clusters.tolist()]
+    else:
+        dedup_stats = {"n_images": len(clean), "n_clusters": len(clean)}
+        near_dup_groups = [f"nd{i:05d}" for i in range(len(clean))]
+
+    clean["rel_path"] = rel_paths
+    clean["img_width"] = widths
+    clean["img_height"] = heights
+    clean["img_sha256"] = shas
+    clean["img_phash"] = phashes_hex
+    clean["near_dup_group"] = near_dup_groups
+    clean["noise_candidate"] = noise_flags
+
+    stats: dict[str, Any] = {
+        "csv_rows": len(df),
+        "missing_excluded": missing_cnt,
+        "corrupt_excluded": corrupt_cnt,
+        "corrupt_reasons": dict(corrupt_reasons),
+        "noise_candidates_total": int(sum(noise_flags)) + noise_excluded,
+        "noise_candidates_excluded": noise_excluded,
+        "valid_records": len(clean),
+        "dedup": dedup_stats,
+    }
+    return clean, stats
 
 
 def to_records(df: pd.DataFrame) -> list[ManifestRecord]:
     out: list[ManifestRecord] = []
     for row in df.itertuples(index=False):
         ts = str(row.Image_Time).replace("/", "-")
+        ice_type = ICE_TYPE_EN[str(row.Ice_Type)]
         labels = {
-            "ice_type": ICE_TYPE_EN.get(str(row.Ice_Type), "unknown"),
+            "ice_type": ice_type,
             "ice_type_zh": str(row.Ice_Type),
             "insulator_shape_h": SHAPE_EN.get(str(row.InsulatorShapeH), "unknown"),
             "insulator_shape_v": SHAPE_EN.get(str(row.InsulatorShapeV), "unknown"),
@@ -85,11 +190,17 @@ def to_records(df: pd.DataFrame) -> list[ManifestRecord]:
             "tower": str(row.Tower),
             "ice_season": str(row.Year),
             "is_synthetic": False,
+            "phash": str(row.img_phash),
+            "near_dup_group": str(row.near_dup_group),
+            "noise_candidate": bool(row.noise_candidate),
         }
+        w = int(row.img_width) if int(row.img_width) > 0 else None
+        h = int(row.img_height) if int(row.img_height) > 0 else None
         out.append(
             ManifestRecord(
                 image_id=str(row.Image_Name),
-                path=row.rel_path,
+                path=paths.rel_posix(row.rel_path),
+                sha256=str(row.img_sha256),
                 site_id=str(row.Bureau),
                 camera_id=str(row.monitorId),
                 weather_event_id=str(row.Year),
@@ -98,38 +209,74 @@ def to_records(df: pd.DataFrame) -> list[ManifestRecord]:
                 is_synthetic=False,
                 scene_group="field",
                 labels=labels,
-                label_version="scut_v2",
+                label_version="scut_ice_type_v1",
+                width=w,
+                height=h,
             )
         )
     return out
 
 
 def split_monitor(records: list[ManifestRecord], seed: int = 42) -> dict[str, str]:
-    """协议 A：整终端分层抽样（按 Bureau 分层，保证各局都有留出）。"""
-    import random
+    """协议 A：整终端分层抽样，并锁定跨终端近重复集群不跨 split。"""
+    monitors = sorted({r.camera_id for r in records})
+    mon_idx = {m: i for i, m in enumerate(monitors)}
+    uf = UnionFind(len(monitors))
 
-    by_bureau: dict[str, set[str]] = defaultdict(set)
+    # 若同一 near_dup_group 或 sha256 出现在多个终端，将其所在终端绑定在同一原子组件
+    dup_to_mons: dict[str, list[str]] = defaultdict(list)
     for r in records:
-        by_bureau[r.site_id].add(r.camera_id)
+        nd = str(r.labels.get("near_dup_group", ""))
+        if nd:
+            dup_to_mons[f"nd:{nd}"].append(r.camera_id)
+        if r.sha256:
+            dup_to_mons[f"sha:{r.sha256}"].append(r.camera_id)
+    for ms in dup_to_mons.values():
+        if len(ms) > 1:
+            base_i = mon_idx[ms[0]]
+            for m in ms[1:]:
+                uf.union(base_i, mon_idx[m])
+
+    comp_monitors: dict[int, list[str]] = defaultdict(list)
+    for m in monitors:
+        comp_monitors[uf.find(mon_idx[m])].append(m)
+
+    mon_bureaus: dict[str, Counter[str]] = defaultdict(Counter)
+    for r in records:
+        mon_bureaus[r.camera_id][r.site_id] += 1
+
+    by_bureau: dict[str, list[int]] = defaultdict(list)
+    for comp_id, ms in sorted(comp_monitors.items()):
+        bc: Counter[str] = Counter()
+        for m in ms:
+            bc.update(mon_bureaus[m])
+        primary_bureau = bc.most_common(1)[0][0]
+        by_bureau[primary_bureau].append(comp_id)
 
     rng = random.Random(seed)
-    assign: dict[str, str] = {}
-    for _bureau, monitors in sorted(by_bureau.items()):
-        ms = sorted(monitors)
-        rng.shuffle(ms)
-        n = len(ms)
+    comp_assign: dict[int, str] = {}
+    for _bureau, comps in sorted(by_bureau.items()):
+        cs = sorted(comps)
+        rng.shuffle(cs)
+        n = len(cs)
         n_test = max(1, round(n * 0.15)) if n >= 4 else 0
         n_val = max(1, round(n * 0.15)) if n >= 4 else 0
         if n_test + n_val >= n:
             n_test, n_val = 0, 0
-        for i, m in enumerate(ms):
-            assign[m] = "test" if i < n_test else ("val" if i < n_test + n_val else "train")
+        for i, c in enumerate(cs):
+            comp_assign[c] = "test" if i < n_test else ("val" if i < n_test + n_val else "train")
 
-    # 兜底：若某 split 为空，从最大 train 局补一个终端，避免出现空测试集
+    assign: dict[str, str] = {}
+    for comp_id, ms in comp_monitors.items():
+        sp = comp_assign[comp_id]
+        for m in ms:
+            assign[m] = sp
+
     counts = Counter(assign.values())
     if counts.get("test", 0) == 0:
         biggest = Counter(r.camera_id for r in records).most_common(1)[0][0]
-        assign[biggest] = "test"
+        for m in comp_monitors[uf.find(mon_idx[biggest])]:
+            assign[m] = "test"
     return assign
 
 
@@ -142,22 +289,54 @@ def split_temporal(records: list[ManifestRecord]) -> dict[str, str]:
     return out
 
 
+def _assert_zero_cross_split(records: list[ManifestRecord], *, check_monitor: bool) -> None:
+    if check_monitor:
+        mon_splits: dict[str, set[str]] = defaultdict(set)
+        for r in records:
+            mon_splits[r.camera_id].add(r.split)
+        bad_mon = [m for m, sps in mon_splits.items() if len(sps) > 1]
+        if bad_mon:
+            raise AssertionError(f"发现跨 split 终端: {bad_mon[:5]}")
+
+        nd_splits: dict[str, set[str]] = defaultdict(set)
+        sha_splits: dict[str, set[str]] = defaultdict(set)
+        for r in records:
+            nd = str(r.labels.get("near_dup_group", ""))
+            if nd:
+                nd_splits[nd].add(r.split)
+            if r.sha256:
+                sha_splits[r.sha256].add(r.split)
+        bad_nd = [k for k, v in nd_splits.items() if len(v) > 1]
+        bad_sha = [k for k, v in sha_splits.items() if len(v) > 1]
+        if bad_nd or bad_sha:
+            raise AssertionError(f"发现跨 split 近重复/精确重复: nd={bad_nd[:5]} sha={bad_sha[:5]}")
+
+
 def main(argv: list[str] | None = None) -> int:
-    ap = argparse.ArgumentParser(description="生成 SCUT 双协议划分索引")
+    ap = argparse.ArgumentParser(description="生成 SCUT 双协议纯净四分类清单与划分索引")
     ap.add_argument("--seed", type=int, default=42)
-    ap.add_argument("--with-sha", action="store_true", help="同时计算每图 sha256（较慢）")
+    ap.add_argument("--with-sha", action="store_true", help="计算并写入每图 sha256")
+    ap.add_argument("--phash-dist", type=int, default=4, help="pHash 近重复汉明距离上限")
+    ap.add_argument(
+        "--exclude-noise-candidates",
+        action="store_true",
+        help="将 18 张双无冰噪声候选从主清单排除（默认保留并打标 noise_candidate=True）",
+    )
     args = ap.parse_args(argv)
 
-    df = load_csv()
-    print(f"[split] 有效样本 {len(df)}（缺失 1 行已剔除）")
+    df, filter_stats = load_csv(
+        decode_check=True,
+        with_sha=args.with_sha,
+        phash_dist=args.phash_dist,
+        exclude_noise_candidates=args.exclude_noise_candidates,
+    )
+    print(
+        f"[split] 有效样本 {filter_stats['valid_records']} "
+        f"(剔除缺失 {filter_stats['missing_excluded']} / "
+        f"损坏 {filter_stats['corrupt_excluded']} / "
+        f"噪声排除 {filter_stats['noise_candidates_excluded']})"
+    )
     records = to_records(df)
-    root = paths.scut_root()
-
-    if args.with_sha:
-        from grid_ice_vision.data.manifest import sha256_file
-
-        for r in records:
-            r.sha256 = sha256_file(root / r.path)
 
     mon_assign = split_monitor(records, seed=args.seed)
     tmp_assign = split_temporal(records)
@@ -167,24 +346,28 @@ def main(argv: list[str] | None = None) -> int:
     man_dir = PROJ / "data" / "manifests"
     man_dir.mkdir(parents=True, exist_ok=True)
 
-    results: dict[str, object] = {}
+    results: dict[str, Any] = {}
     for tag, assign in (("monitor", mon_assign), ("temporal", tmp_assign)):
         if tag == "monitor":
-            # 协议 A 的键是 **终端**（camera_id）；协议 B 的键是单张图。
             recs = [r.model_copy(update={"split": assign[r.camera_id]}) for r in records]
         else:
             recs = [r.model_copy(update={"split": assign[r.image_id]}) for r in records]
         assert_no_leakage(recs)
+        _assert_zero_cross_split(recs, check_monitor=(tag == "monitor"))
+
         s = summarize(recs)
         by_split_type: dict[str, Counter[str]] = defaultdict(Counter)
         for r in recs:
             by_split_type[r.split][r.labels["ice_type"]] += 1
         s["ice_type_by_split"] = {k: dict(v) for k, v in by_split_type.items()}
 
-        man_path = man_dir / f"scut_v2_{tag}.jsonl"
-        write_manifest(recs, man_path)
-        idx_path = out_dir / f"scut_{tag}_v2.jsonl"
-        write_manifest(recs, idx_path)
+        write_manifest(recs, man_dir / f"scut_v2_{tag}.jsonl")
+        write_manifest(recs, out_dir / f"scut_{tag}_v2.jsonl")
+        if tag == "monitor":
+            write_manifest(recs, man_dir / "scut_ice_type_v1.jsonl")
+        else:
+            write_manifest(recs, man_dir / "scut_ice_type_temporal_v1.jsonl")
+
         results[tag] = s
         print(
             f"[split] 协议 {'A' if tag == 'monitor' else 'B'} ({tag}): "
@@ -193,29 +376,27 @@ def main(argv: list[str] | None = None) -> int:
         for sp in ("train", "val", "test"):
             print(f"        {sp:5s} {dict(by_split_type[sp])}")
 
-    # 终端级泄漏自检（协议 A 的核心承诺）：同一终端的全部类别只出现在一个 split
-    g2s: dict[str, set[str]] = defaultdict(set)
-    for r in records:
-        g2s[mon_assign[r.camera_id]].add(r.labels["ice_type"])
-    print(f"[split] 协议 A 各 split 类别覆盖: { {k: sorted(v) for k, v in g2s.items()} }")
-
-    # 终端不得跨 split（显式断言，比类别覆盖更直接）
-    cam_split: dict[str, str] = {}
-    for r in records:
-        cam_split.setdefault(r.camera_id, mon_assign[r.camera_id])
-    assert len(cam_split) == len(set(cam_split)), "终端集合构建异常"
-    print(f"[split] 协议 A 终端数 {len(cam_split)}（互斥，无跨 split 终端）")
+    cam_split = {r.camera_id: mon_assign[r.camera_id] for r in records}
+    print(f"[split] 协议 A 终端数 {len(cam_split)}（互斥，无跨 split 终端/近重复簇）")
 
     out = PROJ / "artifacts" / "reports" / "scut_splits.json"
+    out.parent.mkdir(parents=True, exist_ok=True)
     out.write_text(
         json.dumps(
-            {"seed": args.seed, "with_sha": args.with_sha, "protocols": results},
+            {
+                "seed": args.seed,
+                "with_sha": args.with_sha,
+                "phash_dist": args.phash_dist,
+                "exclude_noise_candidates": args.exclude_noise_candidates,
+                "filter_stats": filter_stats,
+                "protocols": results,
+            },
             ensure_ascii=False,
             indent=2,
         ),
         encoding="utf-8",
     )
-    print(f"[split] 写出 {man_dir}\\scut_v2_*.jsonl 与 {out_dir}\\scut_*_v2.jsonl")
+    print(f"[split] 写出 {man_dir / 'scut_ice_type_v1.jsonl'} 与 {out_dir / 'scut_*_v2.jsonl'}")
     return 0
 
 

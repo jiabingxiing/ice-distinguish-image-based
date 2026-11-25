@@ -26,6 +26,8 @@ lightning_logs/
 *.pt
 *.pth
 *.ckpt
+*.joblib
+*.npz
 
 # ---- 数据：只保留目录骨架与 README ----
 data/raw/*

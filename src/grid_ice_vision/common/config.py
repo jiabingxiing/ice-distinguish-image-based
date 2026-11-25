@@ -41,6 +41,13 @@ def configure_hf_mirror(
     return os.environ["HF_ENDPOINT"]
 
 
+def configure_torch_cache(cache_dir: str | Path | None = None) -> Path:
+    """将 TORCH_HOME 指向项目内 artifacts/torch-cache，规避 OneDrive/系统盘符号链接或跨盘失效。"""
+    target = Path(cache_dir or PROJECT_ROOT / "artifacts" / "torch-cache")
+    os.environ.setdefault("TORCH_HOME", str(target))
+    return Path(os.environ["TORCH_HOME"])
+
+
 def resolve_config_path(path: str | Path) -> Path:
     """解析配置路径：绝对路径原样；相对路径依次尝试 configs/ 与项目根。"""
     p = Path(path)

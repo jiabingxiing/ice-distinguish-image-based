@@ -38,6 +38,7 @@ class IceType(StrEnum):
     NONE = "none"
     GLAZE = "glaze"
     RIME = "rime"
+    WET_SNOW = "wet_snow"
     MIXED = "mixed"
     UNKNOWN = "unknown"
 
@@ -173,8 +174,19 @@ class IcingResult(BaseModel):
     ice_type_conf: float = Field(default=0.0, ge=0.0, le=1.0)
     # 类型是怎么来的：规则 / 启发式 / 模型 / 无（不猜）
     ice_type_source: Literal["none_rule", "heuristic", "model", "unavailable"] = "unavailable"
+    class_probabilities: dict[str, float] = Field(default_factory=dict)
+    requires_review: bool = False
+    review_reason: str | None = None
     bridge_ratio: float | None = Field(default=None, ge=0.0, le=1.0)
     mask_rle: MaskRLE | None = None
+
+    @field_validator("class_probabilities")
+    @classmethod
+    def _check_class_probabilities(cls, v: dict[str, float]) -> dict[str, float]:
+        for k, p in v.items():
+            if not 0.0 <= p <= 1.0:
+                raise ValueError(f"覆冰类型概率越界: {k}={p}")
+        return v
 
 
 class SeverityResult(BaseModel):

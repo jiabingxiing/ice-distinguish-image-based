@@ -14,6 +14,7 @@ RHO_STANDARD: Final[float] = 900.0
 RHO_BY_ICE_TYPE: Final[dict[str, float]] = {
     "glaze": 900.0,
     "rime": 350.0,
+    "wet_snow": 350.0,
     "mixed": 600.0,
     "none": 900.0,
     "unknown": 900.0,
@@ -38,7 +39,9 @@ WEATHER_LABELS: Final[tuple[str, ...]] = (
 
 INTENSITY_LEVELS: Final[tuple[str, ...]] = ("none", "light", "moderate", "heavy")
 
-ICE_TYPES: Final[tuple[str, ...]] = ("none", "glaze", "rime", "mixed", "unknown")
+ICE_TYPE_FOUR_CLASSES: Final[tuple[str, ...]] = ("glaze", "rime", "wet_snow", "mixed")
+
+ICE_TYPES: Final[tuple[str, ...]] = ("none", "glaze", "rime", "wet_snow", "mixed", "unknown")
 
 VISUAL_GRADES: Final[tuple[str, ...]] = ("G0", "G1", "G2", "G3", "G4")
 
