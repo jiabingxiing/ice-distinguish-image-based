@@ -1,0 +1,57 @@
+# T4 纯图像覆冰类型四分类模型配置（Pure-CPU MobileNetV3-Small）
+# 全部业务阈值集中于此，严禁在 features/ice_type/ 内硬编码魔法数字。
+
+model:
+  backbone: mobilenetv3_small_100   # timm 名称（features_only=True 末层输出 576 维）
+  provider: timm                    # timm | torchvision
+  pretrained: true
+  feature_dim: 576
+  view_mode: full                   # full | roi | dual
+  classes: [glaze, rime, wet_snow, mixed]
+
+preprocess:
+  image_size: 224
+  roi_size: 224
+  preserve_aspect_ratio: true
+  pad_value: 114
+
+quality:
+  tau_q: 0.25                       # 综合质量评分 q_image 门限（< tau_q 拒识）
+  blur_weight: 0.45
+  exposure_weight: 0.30
+  contrast_weight: 0.25
+  blur_degraded: 0.60
+  blur_unusable: 0.80
+  exposure_degraded: 0.25
+  exposure_unusable: 0.45
+  flat_block_ratio: 0.60
+  flat_block_ratio_unusable: 0.90
+  night_mean_gray: 20.0
+  min_roi_side: 24
+  min_roi_std: 4.0
+  drift_corr_min: 0.35
+
+classical:
+  resize: 128
+  hsv_bins: [16, 8, 8]
+  rgb_bins: [8, 8, 8]
+  lbp_radius: 2
+  lbp_points: 16
+  hog_resize: 64
+  hog_orientations: 8
+  hog_pixels_per_cell: [16, 16]
+  hog_cells_per_block: [2, 2]
+  gabor_resize: 64
+  gabor_frequencies: [0.1, 0.25]
+  gabor_thetas: 4
+
+calibration:
+  method: temperature
+  temperature: 1.0
+  ece_target: 0.10
+
+reject:
+  tau_q: 0.25
+  tau_p: 0.45
+  tau_m: 0.08
+  min_coverage: 0.80

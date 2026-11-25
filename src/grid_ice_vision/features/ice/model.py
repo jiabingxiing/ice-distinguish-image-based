@@ -59,7 +59,7 @@ class UNetLite(nn.Module):
 
 
 class IceTypeGradeNet(nn.Module):
-    """T4：ROI 图像 + 4 类掩码 → 覆冰类型（5 类）+ 视觉等级（G0–G4, CORAL）。"""
+    """T4：ROI 图像 + 4 类掩码 → 覆冰类型（len(ICE_TYPES) 类）+ 视觉等级（G0–G4, CORAL）。"""
 
     def __init__(
         self,

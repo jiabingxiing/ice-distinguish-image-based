@@ -1,0 +1,66 @@
+# 纯 CPU 覆冰类型四分类训练配置（P1/P2/P3 统一入口）
+task: ice_type
+device: cpu
+hf_endpoint: https://hf-mirror.com
+
+data:
+  dataset: scut
+  manifest: data/manifests/scut_ice_type_v1.jsonl
+  temporal_manifest: data/manifests/scut_ice_type_temporal_v1.jsonl
+  protocol: monitor_holdout
+  image_size: 224
+  roi_size: 224
+  preserve_aspect_ratio: true
+  pad_value: 114
+  use_roi: false
+  view_mode: full                   # full | roi | dual
+  roi_csv: configs/data/monitor_roi_v1.csv
+  num_classes: 4
+  exclude_noise_candidates: true    # 默认排除未确认无冰噪声候选，保证监督标签纯净
+  allow_hflip: false                # 默认关闭，避免影响左右偏冰与风向纹理语义
+
+model:
+  backbone: mobilenetv3_small_100
+  provider: timm
+  pretrained: true
+  freeze_backbone: true
+  feature_dim: 576
+
+classifier:
+  type: svm_rbf                     # svm_linear | svm_rbf | logistic | mlp
+  c_grid: [0.003, 0.01, 0.03, 0.1, 0.3, 1.0, 3.0, 10.0]
+  gamma: scale
+  class_weight: balanced
+  oversample_train: false
+  probability_calibration: true
+
+training:
+  device: cpu
+  cpu_threads: 8
+  batch_size: 16
+  num_workers: 0
+  random_seed: 42
+  cache_features: true
+  feature_dir: artifacts/features
+  out_dir: artifacts/ice_type
+  version: v1
+
+finetune:
+  enabled: false
+  unfreeze_last_stages: 1
+  batch_size: 8
+  epochs: 8
+  backbone_lr: 1.0e-5
+  head_lr: 3.0e-4
+  weight_decay: 1.0e-4
+  early_stopping_patience: 3
+  amp: off
+
+evaluation:
+  metrics:
+    - accuracy
+    - balanced_accuracy
+    - macro_f1
+    - pr_auc_ovr
+    - ece
+    - confusion_matrix
