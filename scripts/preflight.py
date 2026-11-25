@@ -12,7 +12,9 @@
 from __future__ import annotations
 
 import argparse
+import contextlib
 import json
+import os
 import subprocess
 import sys
 from pathlib import Path
@@ -52,14 +54,18 @@ def check_import() -> tuple[bool, str]:
     )
     # 必须显式指定 utf-8：Windows 子进程默认按 ANSI(GBK) 解码，
     # 项目路径含中文时 stdout 读取会抛 UnicodeDecodeError。
+    # 同时强制子进程用 utf-8 输出，否则子进程按 cp936 写、父进程按 utf-8 读，
+    # 中文路径会被替换成 U+FFFD，导致误判“导入自项目外副本”。
+    child_env = {**os.environ, "PYTHONIOENCODING": "utf-8"}
     try:
         r = subprocess.run(
-            [sys.executable, "-c", code],
+            [sys.executable, "-X", "utf8", "-c", code],
             capture_output=True,
             text=True,
             encoding="utf-8",
             errors="replace",
             timeout=120,
+            env=child_env,
         )
     except (subprocess.SubprocessError, OSError) as exc:
         return False, f"导入检查无法执行: {exc}"
@@ -93,6 +99,13 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--json", action="store_true", help="以 JSON 输出")
     ap.add_argument("--skip-import", action="store_true", help="跳过子进程导入检查")
     args = ap.parse_args(argv)
+
+    # Windows 默认控制台是 CP936(GBK)：路径里出现无法编码的字符（如 U+FFFD）时
+    # print 会抛 UnicodeEncodeError，让本来只是“报告一个问题”的自检自己崩掉。
+    # 这里把 stdout 的重定向错误策略改成 backslashreplace，坏字符不再中断自检。
+    for stream in (sys.stdout, sys.stderr):
+        with contextlib.suppress(AttributeError, ValueError):
+            stream.reconfigure(errors="backslashreplace")  # type: ignore[union-attr]
 
     problems: list[str] = []
     report: dict[str, object] = {"project_root": str(paths.PROJ)}

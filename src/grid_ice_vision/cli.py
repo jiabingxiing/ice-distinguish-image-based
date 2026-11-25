@@ -217,15 +217,15 @@ def infer(
     w0_px: float = typer.Option(None, help="裸导线像素宽度"),
 ) -> None:
     """单图推理，输出契约 JSON + 证据图。"""
-    import cv2
-
     from grid_ice_vision.application.pipeline import InferencePipeline
     from grid_ice_vision.common.schemas import CalibInput, SourceInfo
+    from grid_ice_vision.data.transforms.common import load_image
 
     cfg = _cfg(config)
-    img = cv2.imread(image, cv2.IMREAD_COLOR)
-    if img is None:
-        raise typer.BadParameter(f"无法读取图像: {image}")
+    try:
+        img = load_image(image)
+    except FileNotFoundError as exc:
+        raise typer.BadParameter(str(exc)) from exc
     pipe = InferencePipeline.from_config(cfg, device=str(get(cfg, "device", "cpu")))
     src = SourceInfo(site_id=site_id, camera_id=camera_id, timestamp="2026-01-15T08:30:12+08:00")
     result = pipe.run(img, Path(image).stem, src, CalibInput(d0_mm=d0_mm, w0_px=w0_px))
@@ -294,13 +294,13 @@ def validate(manifest: str = typer.Option(..., "--manifest")) -> None:
 @app.command()
 def quality(image: str = typer.Option(..., "--image")) -> None:
     """只跑质量门控，用于现场排查摄像头。"""
-    import cv2
-
+    from grid_ice_vision.data.transforms.common import load_image
     from grid_ice_vision.features.quality.gate import assess_quality
 
-    img = cv2.imread(image, cv2.IMREAD_COLOR)
-    if img is None:
-        raise typer.BadParameter(f"无法读取图像: {image}")
+    try:
+        img = load_image(image)
+    except FileNotFoundError as exc:
+        raise typer.BadParameter(str(exc)) from exc
     console.print_json(json.dumps(assess_quality(img).model_dump(mode="json"), ensure_ascii=False))
 
 

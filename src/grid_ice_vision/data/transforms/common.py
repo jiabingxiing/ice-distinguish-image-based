@@ -15,9 +15,26 @@ IMAGENET_MEAN = np.array([0.485, 0.456, 0.406], dtype=np.float32)
 IMAGENET_STD = np.array([0.229, 0.224, 0.225], dtype=np.float32)
 
 
+def _imread_unicode(path: str | Path, flags: int) -> np.ndarray | None:
+    """读图，兼容 Windows 上的非 ASCII 路径。
+
+    `cv2.imread` 在 Windows 走 ANSI 文件 API，路径含中文（如
+    `NW_data/华南理工 整理覆冰图像库…`）时一律返回 None，看起来像“文件不存在”。
+    这里改为先读字节流再 `cv2.imdecode`，绕开该限制。
+    """
+    p = Path(path)
+    try:
+        buf = np.fromfile(str(p), dtype=np.uint8)
+    except OSError:
+        return None
+    if buf.size == 0:
+        return None
+    return cv2.imdecode(buf, flags)
+
+
 def load_image(path: str | Path) -> np.ndarray:
     """读图为 BGR uint8。"""
-    img = cv2.imread(str(path), cv2.IMREAD_COLOR)
+    img = _imread_unicode(path, cv2.IMREAD_COLOR)
     if img is None:
         raise FileNotFoundError(f"无法读取图像: {path}")
     return img
@@ -25,7 +42,7 @@ def load_image(path: str | Path) -> np.ndarray:
 
 def load_mask(path: str | Path) -> np.ndarray:
     """读掩码为 uint8 类别索引（单通道，最近邻）。"""
-    m = cv2.imread(str(path), cv2.IMREAD_UNCHANGED)
+    m = _imread_unicode(path, cv2.IMREAD_UNCHANGED)
     if m is None:
         raise FileNotFoundError(f"无法读取掩码: {path}")
     if m.ndim == 3:
