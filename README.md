@@ -127,7 +127,8 @@ tests/        unit（每次提交）/ integration（每次 PR）/ e2e（每日�
 - `0.1.0` — P0–P4 工程闭环（方法 + 合成验证）。生产精度未验证。
 - `pyproject.toml` 与 `src/grid_ice_vision/__init__.py` 的 `__version__` 当前都是 `0.1.0`；
   计划中的 v2.0（`0.2.0`）尚未开始实现。
-- **分支现状（2026-11-25 实测）**：默认分支 `master` 停在 `18d9110`（P2 冒烟）。
-  另有 `feat/m0-paths-preflight`、`feat/v2-scut-upgrade`（均无新提交）与当前检出的
-  `feat/m3-severity-track-a`（比 `master` 多 11 个提交：位置无关路径层、SCUT 审计与双划分、
-  Track A 的 `Pa`/基准匹配/变步长 EKF/几何 55× 提速）。三条分支**都还没有合回 `master`**。
+- **分支现状（2026-11-25）**：三条特性分支已全部并入 `master`（快进合并，无合并提交）。
+  `master` 现为 `5500082`，含位置无关路径层、SCUT 审计与双划分、Track A 的
+  `Pa`/基准匹配/变步长 EKF/几何 55× 提速。旧的 `feat/m0-paths-preflight`（`b708335`）与
+  `feat/v2-scut-upgrade`（`18d9110`）已完全包含在 `master` 中，可删除。
+  `feat/m3-severity-track-a` 与 `master` 同点，后续开发建议从 `master` 重新拉分支。
