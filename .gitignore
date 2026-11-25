@@ -36,6 +36,13 @@ data/processed/*
 !data/**/README.md
 data/manifests/*.jsonl
 
+# 划分索引属「可复现契约」：由 scripts/build_scut_manifest.py 确定性生成
+# （固定 seed=42），体量小且必须入库，用于锁定 Monitor-Holdout 终端集合。
+!data/splits/*.jsonl
+
+# CatBoost 训练临时目录（默认在 cwd 生成，不应入库）
+catboost_info/
+
 # ---- 密钥与本地配置 ----
 .env
 .env.*
