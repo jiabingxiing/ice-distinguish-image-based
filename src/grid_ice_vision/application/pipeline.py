@@ -67,11 +67,44 @@ from grid_ice_vision.features.severity.ice_type import (
     ice_type_confidence,
     resolve_ice_type,
 )
+from grid_ice_vision.features.severity.insulator_pa import (
+    InsulatorPaConfig,
+    InsulatorPaResult,
+    compute_insulator_pa,
+)
 from grid_ice_vision.features.severity.thickness import estimate_thickness
 
 log = get_logger("pipeline")
 
-_PIPELINE_VERSION = "0.1.0"
+_PIPELINE_VERSION = "0.2.0"
+
+
+def _round(value: float | None, ndigits: int) -> float | None:
+    """None 安全的四舍五入：None 保持 None（不把缺失伪装成 0）。"""
+    return None if value is None else round(float(value), ndigits)
+
+
+def _step_dt_minutes(
+    history_timestamps: list[str] | None, source: SourceInfo | None
+) -> float | None:
+    """求「最近一次历史帧 → 当前帧」的真实间隔（分钟）。
+
+    没有时间戳或解析失败时返回 None，由 EKF 退回配置默认步长。
+    跨度过大（> 24 h）也返回 None：那说明序列已断裂，应视为新起点而非慢生长。
+    """
+    if not history_timestamps or source is None or not source.timestamp:
+        return None
+    from datetime import datetime
+
+    try:
+        prev = datetime.fromisoformat(str(history_timestamps[-1]).replace("Z", "+00:00"))
+        cur = datetime.fromisoformat(str(source.timestamp).replace("Z", "+00:00"))
+    except ValueError:
+        return None
+    minutes = abs((cur - prev).total_seconds()) / 60.0
+    if minutes <= 0 or minutes > 24 * 60:
+        return None
+    return minutes
 
 
 @dataclass
@@ -147,6 +180,7 @@ class InferencePipeline:
         self.severity_th = SeverityThresholds.from_config(cfg.severity or cfg.raw)
         self.rho = RhoPolicy.from_config(cfg.raw)
         self.ekf_cfg = EKFConfig.from_config(cfg.alarm or cfg.raw)
+        self.pa_cfg = InsulatorPaConfig.from_config(cfg.severity or cfg.raw)
         self.lens_tracker = LensIcingTracker()
         self.alarms = AlarmStateMachine(self.alarm_rules)
         self._cfg_hash = config_hash(cfg.raw)
@@ -193,7 +227,20 @@ class InferencePipeline:
         calib: CalibInput | None = None,
         history_d_eq_mm: list[float] | None = None,
         write_evidence: bool = True,
+        history_timestamps: list[str] | None = None,
+        baseline_mask: np.ndarray | None = None,
+        baseline_iou: float | None = None,
+        baseline_corr: float | None = None,
     ) -> InferenceResult:
+        """执行 T0–T5 全链路。
+
+        参数
+        ----
+        history_timestamps : 与 `history_d_eq_mm` 等长的 ISO 时间串。给出时 EKF 按
+            真实间隔（南网 1–6 h）推进，消除原固定 15 min 造成的增长率失真。
+        baseline_mask : 同 `monitorId`、已配准的无冰基准掩码（0..3）。给出时才能算 `Pa`。
+        baseline_iou / baseline_corr : 基准匹配的 IoU 与 ECC 相关系数，用于审计。
+        """
         t_start = time.perf_counter()
         calib = calib or CalibInput()
         camera_id = source.camera_id if source else None
@@ -255,6 +302,11 @@ class InferencePipeline:
             quality=quality,
             history=history_d_eq_mm or [],
             roi_id=primary.roi_id,
+            history_timestamps=history_timestamps,
+            baseline_mask=baseline_mask,
+            baseline_iou=baseline_iou,
+            baseline_corr=baseline_corr,
+            is_insulator=primary.cls is AssetClass.INSULATOR_STRING,
         )
 
         icing = IcingResult(
@@ -264,7 +316,12 @@ class InferencePipeline:
             ice_type=ice_type,
             ice_type_conf=ice_type_confidence(ice_src),
             ice_type_source=ice_src,
-            bridge_ratio=None if seg.bridge is None else round(seg.bridge, 4),
+            # 优先用 Track A 的桥接率（绝缘子），否则退回分割头给出的值
+            bridge_ratio=(
+                severity.bridge_ratio
+                if severity.bridge_ratio is not None
+                else (None if seg.bridge is None else round(seg.bridge, 4))
+            ),
             mask_rle=seg.mask_rle(),
         )
 
@@ -293,6 +350,11 @@ class InferencePipeline:
         quality: QualityInfo,
         history: list[float],
         roi_id: str,
+        history_timestamps: list[str] | None = None,
+        baseline_mask: np.ndarray | None = None,
+        baseline_iou: float | None = None,
+        baseline_corr: float | None = None,
+        is_insulator: bool = False,
     ) -> SeverityResult:
         outcome = resolve_calibration(
             calib,
@@ -301,6 +363,13 @@ class InferencePipeline:
         )
         review = outcome.requires_review or quality.status is QualityStatus.DEGRADED
 
+        # ---- Track A：绝缘子视觉轨（不依赖标定，永远先算）----
+        pa: InsulatorPaResult | None = None
+        if is_insulator:
+            pa = compute_insulator_pa(seg_mask, baseline_mask=baseline_mask, cfg=self.pa_cfg)
+            if not pa.reliable:
+                review = True
+
         if outcome.alpha_mm_per_px is None or calib.d0_mm is None:
             return SeverityResult(
                 visual_grade=grade,
@@ -308,6 +377,12 @@ class InferencePipeline:
                 measurement_status=outcome.status,
                 calibration_source=outcome.source,
                 requires_review=review,
+                insulator_pa_pct=None if pa is None else _round(pa.pa_pct, 2),
+                insulator_dist_v=None if pa is None else pa.vertical,
+                insulator_dist_h=None if pa is None else pa.horizontal,
+                bridge_ratio=None if pa is None else _round(pa.bridge_ratio, 4),
+                baseline_matched_iou=baseline_iou,
+                baseline_ecc_corr=baseline_corr,
             )
 
         alpha = outcome.alpha_mm_per_px
@@ -325,6 +400,12 @@ class InferencePipeline:
                 calibration_source=outcome.source,
                 alpha_mm_per_px=alpha,
                 requires_review=True,
+                insulator_pa_pct=None if pa is None else _round(pa.pa_pct, 2),
+                insulator_dist_v=None if pa is None else pa.vertical,
+                insulator_dist_h=None if pa is None else pa.horizontal,
+                bridge_ratio=None if pa is None else _round(pa.bridge_ratio, 4),
+                baseline_matched_iou=baseline_iou,
+                baseline_ecc_corr=baseline_corr,
             )
 
         rho, rho_src = self.rho.resolve(ice_type)
@@ -339,14 +420,19 @@ class InferencePipeline:
 
         ekf = ThicknessEKF(self.ekf_cfg)
         if history:
-            ekf.replay(history)
-        state = ekf.update(est.d_eq_mm)
+            # 变步长：有真实时间戳时按实际间隔回放（南网 1–6 h 采样）
+            ekf.replay(history, timestamps=history_timestamps)
+        # 本步 dt 取「最近一次历史时间戳 → 当前帧时间戳」
+        step_dt = _step_dt_minutes(history_timestamps, source)
+        state = ekf.update(est.d_eq_mm, dt_minutes=step_dt)
 
+        # 桥接率：优先用绝缘子 Track A 的真实值，取代原先硬编码的 None
+        bridge = None if pa is None else pa.bridge_ratio
         candidate = classify_level(
             self.alarm_rules,
             d_eq_mm=state.d_eq_mm,
             gamma=est.gamma,
-            bridge=None,
+            bridge=bridge,
             measurement_status=outcome.status,
         )
         key = (
@@ -372,6 +458,13 @@ class InferencePipeline:
             rho_kg_m3=round(rho, 1),
             rho_source=rho_src,
             requires_review=review or requires_review(level, self.alarm_rules),
+            insulator_pa_pct=None if pa is None else _round(pa.pa_pct, 2),
+            insulator_dist_v=None if pa is None else pa.vertical,
+            insulator_dist_h=None if pa is None else pa.horizontal,
+            bridge_ratio=None if pa is None else _round(pa.bridge_ratio, 4),
+            baseline_matched_iou=baseline_iou,
+            baseline_ecc_corr=baseline_corr,
+            dt_minutes=None if state.dt_minutes <= 0 else round(state.dt_minutes, 1),
         )
 
     def _write_evidence(

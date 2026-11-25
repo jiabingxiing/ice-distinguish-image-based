@@ -194,6 +194,30 @@ class SeverityResult(BaseModel):
     rho_source: Literal["standard", "config_prior", "ice_type_model"] = "standard"
     requires_review: bool = False
 
+    # ---- Track A：绝缘子视觉轨（不依赖标定，永远可用）----
+    insulator_pa_pct: float | None = Field(
+        default=None,
+        description="绝缘子面积变化率 Pa（百分数）；无同机位无冰基准时为 null",
+    )
+    insulator_dist_v: Literal["all", "top", "middle", "bottom", "none"] | None = Field(
+        default=None, description="纵向偏冰分布，对齐 SCUT InsulatorShapeV"
+    )
+    insulator_dist_h: Literal["uniform", "left_heavy", "right_heavy", "none"] | None = Field(
+        default=None, description="横向偏冰分布，对齐 SCUT InsulatorShapeH"
+    )
+    bridge_ratio: float | None = Field(
+        default=None, ge=0.0, le=1.0, description="伞裙间隙桥接率 η_bridge"
+    )
+    baseline_matched_iou: float | None = Field(
+        default=None, ge=0.0, le=1.0, description="基准帧与当前帧的 IoU；无基准时 null"
+    )
+    baseline_ecc_corr: float | None = Field(
+        default=None, ge=0.0, le=1.0, description="ECC 配准相关系数；未配准时 null"
+    )
+    dt_minutes: float | None = Field(
+        default=None, gt=0.0, description="EKF 本步实际使用的真实采样间隔（分钟）"
+    )
+
     @model_validator(mode="after")
     def _enforce_measured_gate(self) -> Self:
         """硬约束：未标定不得输出厚度与预警等级。
