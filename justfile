@@ -1,7 +1,15 @@
-# justfile —— make 的替代入口（Windows 友好）
+# justfile —— 常用命令入口（本机没有 make）
+#
+# 两处本机实测的坑，改这个文件前先看：
+#   1) uv 生成的 .venv/Scripts/mypy.exe 是 trampoline，直接调用报
+#      "uv trampoline failed to canonicalize script path"；`python -m mypy` 正常。
+#   2) just 用 bash 作 shell（本机是 WSL 的 bash），Windows 的 venv 可执行文件
+#      在 bash 里必须带 .exe 后缀，否则报 "No such file or directory"。
 set shell := ["bash", "-c"]
 
-py := ".venv/bin/python"
+b := if os_family() == "windows" { ".venv/Scripts" } else { ".venv/bin" }
+ext := if os_family() == "windows" { ".exe" } else { "" }
+py := b + "/python" + ext
 
 default:
     @just --list
@@ -12,14 +20,14 @@ install:
 check: lint type test
 
 lint:
-    .venv/bin/ruff check src scripts tests
+    {{py}} -m ruff check src scripts tests
 
 fmt:
-    .venv/bin/ruff format src scripts tests
-    .venv/bin/ruff check src scripts tests --fix
+    {{py}} -m ruff format src scripts tests
+    {{py}} -m ruff check src scripts tests --fix
 
 type:
-    .venv/bin/mypy src
+    {{py}} -m mypy src
 
 test:
     {{py}} -m pytest tests -q
