@@ -1,7 +1,10 @@
 # AGENTS.md —— 仓库契约（写给所有参与的人与 Agent）
 
-> 本文件是**硬规则**，违反会被 CI 或 pre-commit 拦下。
-> 计划依据：`../IMPLEMENTATION_PLAN.md` §9.2、§12、§15。
+> 本文件是**硬规则**。
+> 计划依据：`../plans/IMPLEMENTATION_PLAN.md` §9.2、§12、§15（v1.0 归档）；
+> 当前实施基线为 `../plans/电网覆冰智能识别_v2.0-实现计划.md`。
+> ⚠️ 本仓库**没有远端**，`.github/workflows/` 不会自动执行；也**未安装** pre-commit 钩子。
+> 规则靠提交前自己跑 §5 的检查落实，不要假设「CI 会拦」。
 
 ## 1. 模块边界（不可越界）
 
@@ -21,13 +24,13 @@
 1. **分组键 = `site_id | camera_id | weather_event_id`**，同一 group 不得跨 split。
 2. **合成数据只进 train**，`test` 中 `is_synthetic` 必须全为 false。
 3. **许可未确认的资源只能进 `data/external/`**（只读、不参与训练）。
-4. 每次训练必须绑定一个 manifest；manifest 每条带 `sha256`。
+4. 每次训练必须绑定一个 manifest；正式训练集必须逐条带 `sha256`（`build_scut_manifest.py --with-sha` 生成；当前 `data/manifests/scut_v2_*.jsonl` 尚未带 sha）。
 5. 改动划分逻辑后必须跑 `scripts/validate_dataset.py`。
 
 ## 3. 指标口径
 
 - 三栏制：**硬门槛 / 软目标 / 文献参考**。文献值只能作对照，写进报告时必须标注"不可比"。
-- 覆冰厚度 MAPE 只在 `gt ≥ 1 mm` 样本上计算；0 厚度样本必须剔除并单独报数量。
+- 覆冰厚度 MAPE 只在 `gt ≥ 3 mm` 样本上计算（`scripts/eval_thickness_mape.py::MAPE_MIN_GT_MM`）；不足 3 mm 的样本与 0 厚度样本必须剔除并单独报数量。
 - 没有 Set-D（现场精标集）之前，**禁止**在任何材料中写"可用于生产"。
 
 ## 4. 目录与命名
@@ -41,9 +44,11 @@
 ## 5. 提交前
 
 ```bash
-make check     # ruff + mypy + pytest
+just check     # Windows 推荐：ruff + mypy + pytest（justfile 已适配）
+make check     # 需 Git Bash / WSL 提供 make，本机默认没有 make
 ```
 
+- 单独跑：`just lint` / `just type` / `just test`。
 - 新增业务阈值 → 同时改 `configs/` 与文档，并在 PR 描述里说明依据。
 - 新增字段到契约 → 给默认值；删改字段 → 升主版本并保留一个版本的兼容解析。
 - 修改 `features/severity/` → 必须同时补/改单测（恒等、零、单调、密度四条不可删）。

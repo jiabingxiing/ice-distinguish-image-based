@@ -5,8 +5,9 @@
 输出三类结构化结果：**降水相态（视觉）** + **部件覆冰状态** + **覆冰程度（含物理量纲）**，
 以统一 JSON 契约接入电网运维平台。
 
-> 本仓库是 `IMPLEMENTATION_PLAN.md`（合并版 v1.0）的代码落地。
-> 计划文档在上级目录，本文件只描述**怎么跑**与**边界在哪**。
+> 本仓库是 `../plans/IMPLEMENTATION_PLAN.md`（合并版 v1.0）的代码落地，
+> 当前实施基线为 `../plans/电网覆冰智能识别_v2.0-实现计划.md`。
+> 计划文档在上级 `plans/` 目录，本文件只描述**怎么跑**与**边界在哪**。
 
 ---
 
@@ -37,24 +38,33 @@ uv pip install --python .venv/Scripts/python.exe -e ".[dev,serve,deploy]"
 
 Linux / macOS 把 `.venv/Scripts/python.exe` 换成 `.venv/bin/python`。
 
+> 仓库带 `uv.lock`（当前锁 torch 2.15.0 / torchvision 0.29.2 / timm 1.0.31 / numpy 2.5.5）。
+> 本机遗留的 `_editable_impl_grid_ice_vision.pth` 记录的是**当前**绝对路径；
+> 项目整体换盘或换目录后必须先跑 `uv run python scripts/preflight.py` 核对，否则解释器启动失败。
+> 注意用 `uv run` 或 `.venv/Scripts/python.exe`，不要用裸 `python`（本机 PATH 上是 3.13 全局解释器）。
+
 ## 3. 跑起来
 
 ```bash
-# 单元测试（< 10 s，不需要任何数据与权重）
+# 单元测试（不需要任何数据与权重）
 uv run pytest tests/unit -q
 
-# 全量检查（ruff + mypy + 全部单测）
-make check
+# 全量检查（ruff + mypy + 全部测试）；本机没有 make，用 just
+just check
 
 # 合成数据自检：验证几何量算链路（不需要真实数据）
 uv run python scripts/demo_synthetic.py
 
-# 单图推理（需要权重；无权重时用 --random-weights 只验契约）
-uv run giv infer --image samples/demo.jpg --config configs/model/pipeline.yaml
+# 单图推理（`--image` 必须指向真实存在的文件；configs/model/pipeline.yaml 的 weights 默认全 null，
+# 即模型用随机初始化权重，只用于验契约，不产生任何有意义的精度）
+uv run giv infer --image <你的图.jpg> --config configs/model/pipeline.yaml
 
 # 启动服务
 uv run giv serve --config configs/model/pipeline.yaml --port 8000
 ```
+
+> `giv infer` 目前**没有** `--random-weights` 选项，仓库内也**没有** `samples/demo.jpg`；
+> 自带的合成自检是 `scripts/demo_synthetic.py`。
 
 ### 天气分类（P1，WEAPD / CC0）
 
@@ -97,7 +107,7 @@ docs/         架构、标注规范、等级 rubric、许可台账、ADR、模�
 tests/        unit（每次提交）/ integration（每次 PR）/ e2e（每日回归）
 ```
 
-硬规则见 `AGENTS.md`，违反会被 CI 拦下。
+硬规则见 `AGENTS.md`。仓库**没有远端、CI 不会自动跑**，靠提交前自己执行 `just check` 落实。
 
 ## 5. 模块边界（摘要）
 
@@ -115,3 +125,9 @@ tests/        unit（每次提交）/ integration（每次 PR）/ e2e（每日�
 ## 7. 版本
 
 - `0.1.0` — P0–P4 工程闭环（方法 + 合成验证）。生产精度未验证。
+- `pyproject.toml` 与 `src/grid_ice_vision/__init__.py` 的 `__version__` 当前都是 `0.1.0`；
+  计划中的 v2.0（`0.2.0`）尚未开始实现。
+- **分支现状（2026-11-25 实测）**：默认分支 `master` 停在 `18d9110`（P2 冒烟）。
+  另有 `feat/m0-paths-preflight`、`feat/v2-scut-upgrade`（均无新提交）与当前检出的
+  `feat/m3-severity-track-a`（比 `master` 多 11 个提交：位置无关路径层、SCUT 审计与双划分、
+  Track A 的 `Pa`/基准匹配/变步长 EKF/几何 55× 提速）。三条分支**都还没有合回 `master`**。

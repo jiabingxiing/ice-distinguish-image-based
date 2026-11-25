@@ -1,6 +1,6 @@
 # 数据与资源许可台账
 
-> 依据 `IMPLEMENTATION_PLAN.md` §11.1、附录 A。**2026-10-20 重新核实**了 TTPLA / WEAPD / InsPLAD 三行的许可（原台账误记为 pending），
+> 依据 `../plans/IMPLEMENTATION_PLAN.md` §11.1、附录 A。**2026-10-20 重新核实**了 TTPLA / WEAPD / InsPLAD 三行的许可（原台账误记为 pending），
 > 并复核了 TTPLA 镜像的可达性与单文件大小，新增两个 Science Data Bank 覆冰资源。
 > **硬门槛：许可未确认的资源只能进 `data/external/`（只读、不参与训练）。**
 

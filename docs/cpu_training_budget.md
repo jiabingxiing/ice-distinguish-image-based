@@ -1,7 +1,7 @@
 # CPU-only 训练预算与取舍
 
 > 本机：LENOVO YOGA 14s 2020 / Ryzen 7 4800U（8C/16T，Zen 2，**无 AVX-512**）/ 16 GB LPDDR4X / **无 GPU**。
-> 运行环境：`.venv` Python 3.12.13，torch 2.14.1+cpu，timm 1.0.30。
+> 运行环境：`.venv` Python 3.12.13，当时 torch 2.14.1+cpu，timm 1.0.30（现役版本见 `uv.lock`）。
 > 结论先行：**CPU 能训分类与检测的小样本冒烟，不能训到可交付精度；时间要用在"验证链路"而不是"刷指标"。**
 
 ## 1. 实测数据（不是估算）

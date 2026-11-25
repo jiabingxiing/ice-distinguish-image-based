@@ -1,6 +1,6 @@
 # 标注规范 v1.0
 
-> 依据 `IMPLEMENTATION_PLAN.md` §8。本文件是标注员的**唯一操作依据**，
+> 依据 `../plans/IMPLEMENTATION_PLAN.md` §8。本文件是标注员的**唯一操作依据**，
 > 与 `configs/labels/taxonomy.yaml` 保持一致；两者冲突时以 taxonomy 为准并回改本文。
 
 ## 0. 双体系原则（最重要）

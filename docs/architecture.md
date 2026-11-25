@@ -1,6 +1,6 @@
 # 系统架构
 
-> 依据 `IMPLEMENTATION_PLAN.md` §9、§7。本文只描述**已实现**的结构与调用链。
+> 依据 `../plans/IMPLEMENTATION_PLAN.md` §9、§7。本文只描述**已实现**的结构与调用链。
 
 ## 1. 分层
 

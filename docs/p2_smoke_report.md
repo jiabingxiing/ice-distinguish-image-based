@@ -130,11 +130,11 @@ $env:HF_ENDPOINT='https://hf-mirror.com'
 tar -xzf data/raw/ttpla_hf/data_original_size.tar.gz -C data/raw/ttpla
 
 # 2. 转换 + manifest（split 清单从 GitHub API 取，raw.githubusercontent 本机不稳）
-python scripts/convert_ttpla.py --src data/raw/ttpla --out data/processed/ttpla_coco/annotations.json
-python scripts/build_ttpla_manifest.py --root data/raw/ttpla --splits data/raw/ttpla/splitting_dataset_txt
-python scripts/validate_dataset.py --manifest data/manifests/detect_v1.jsonl
+uv run python scripts/convert_ttpla.py --src data/raw/ttpla --out data/processed/ttpla_coco/annotations.json
+uv run python scripts/build_ttpla_manifest.py --root data/raw/ttpla --splits data/raw/ttpla/splitting_dataset_txt
+uv run python scripts/validate_dataset.py --manifest data/manifests/detect_v1.jsonl
 
 # 3. 训练 + 评估
 giv train detector --config configs/train/detector_smoke.yaml
-python scripts/eval_detector.py --config configs/train/detector_smoke.yaml --split test --tiled-bench 20
+uv run python scripts/eval_detector.py --config configs/train/detector_smoke.yaml --split test --tiled-bench 20
 ```

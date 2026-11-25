@@ -14,10 +14,12 @@
 生成方式：
 
 ```bash
-python scripts/build_manifests.py --root data/processed/icing --out data/manifests/icing_v1.jsonl
-python scripts/split_manifest.py --manifest data/manifests/icing_v1.jsonl
-python scripts/validate_dataset.py --manifest data/manifests/icing_v1.jsonl --check-sha
+uv run python scripts/build_manifests.py --root data/processed/icing --out data/manifests/icing_v1.jsonl
+uv run python scripts/split_manifest.py --manifest data/manifests/icing_v1.jsonl
+uv run python scripts/validate_dataset.py --manifest data/manifests/icing_v1.jsonl --check-sha
 ```
+
+> 用 `uv run`（或 `.venv/Scripts/python.exe`）。裸 `python` 在本机是 3.13 全局解释器，导入不到本项目包。
 
 ## SCUT 实测库登记台账（M0 审计结果，2026-11-25）
 
@@ -28,7 +30,7 @@ python scripts/validate_dataset.py --manifest data/manifests/icing_v1.jsonl --ch
 |---|---|---|
 | CSV 行数 / 磁盘图数 | 7,297 / 7,296 | 缺 1 图：`2018/8ab1536997a848e68697cdf781c181dd` |
 | 可解码 / **损坏** | 7,244 / **52** | 损坏图为 JPEG 截断或 SOS 非法，**训练前必须剔除** |
-| 低清（≤704 px 宽）占比 | **93.2%** | 640×480: 5,395；704×576: 1,142；320×240: 206；352×288: 6 |
+| 低清（≤704 px 宽）占比 | **93.2%** | 分母为可解码 7,244 张：640×480: 5,395；704×576: 1,142；320×240: 206；352×288: 6。按全部 7,296 张的文件头统计则为 640×480: 5,446（占比 93.2% 不变） |
 | 高分辨率 | 1280×720: 455；1920×1080: 25；1024×768: 15 | 与旧方案「≥1080P」假设差距大 |
 | 终端 / 局 / 跨年终端 | 382 / 24 / **179** | 跨年终端必须整终端留出，否则背景泄漏 |
 | 冻杯（三天风速全 0） | **1,411 行（19.3%）** | 置 `NaN` 交 CatBoost 原生缺失分支 |
