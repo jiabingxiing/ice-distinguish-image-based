@@ -13,6 +13,13 @@ BFS 退化到 **~1 s**。因此加了 `MAX_SKEL_PX` 上限，超限抛 `ValueErr
 
 本文件把这些结论固化为回归门禁：**任何人重新引入逐截面 spline 滤波，
 或移除退化保护，都会在这里失败。**
+
+关于稳定性（2026-11-25 补）
+--------------------------
+这些门禁用墙钟时间断言，单次采样会被 GC、杀毒扫描、CI 邻居噪声污染：
+一次全负载运行里本文件出现过 2 个假失败，紧接着连跑 3 次全绿。
+门禁要抓的是 **55× 数量级的回归**，不是 20% 的抖动，所以改为取多次采样的
+**最小值**（最小值最接近无干扰的真实成本），并保留一条绝对上限。
 """
 
 from __future__ import annotations
@@ -27,6 +34,20 @@ from grid_ice_vision.features.severity.geometry import (
     measure_widths,
     skeleton_polyline,
 )
+
+# 每个用例的时间采样次数；取最小值以剔除偶发调度噪声
+_PERF_REPEATS = 5
+
+
+def _best_ms(fn, repeats: int = _PERF_REPEATS) -> float:
+    """跑 repeats 次，返回最快一次的毫秒数。"""
+    fn()  # 预热：排除首次 import / 缓存冷启动
+    best = float("inf")
+    for _ in range(repeats):
+        t0 = time.perf_counter()
+        fn()
+        best = min(best, (time.perf_counter() - t0) * 1000.0)
+    return best
 
 
 def rod(h: int = 400, w: int = 400, half: int = 12) -> np.ndarray:
@@ -49,12 +70,13 @@ def rod(h: int = 400, w: int = 400, half: int = 12) -> np.ndarray:
     ],
 )
 def test_measure_widths_within_budget(h: int, w: int, half: int, budget_ms: float) -> None:
-    """真实形态设备必须在预算内完成（预滤波优化后的实测 38–97 ms）。"""
+    """真实形态设备必须在预算内完成（预滤波优化后的实测 33–57 ms）。
+
+    取多次采样的最小值：本门禁针对「逐截面 spline_filter」这类量级回归，
+    单次采样在负载下会假失败。
+    """
     m = rod(h, w, half)
-    measure_widths(m, spacing=4.0)  # 预热
-    t0 = time.perf_counter()
-    measure_widths(m, spacing=4.0)
-    elapsed_ms = (time.perf_counter() - t0) * 1000.0
+    elapsed_ms = _best_ms(lambda: measure_widths(m, spacing=4.0))
     assert elapsed_ms < budget_ms, (
         f"{h}x{w} 宽度测量耗时 {elapsed_ms:.1f} ms 超出预算 {budget_ms} ms —— "
         "检查是否重新引入了逐截面 spline_filter"
@@ -77,13 +99,19 @@ def test_measure_widths_valid_ratio_high_on_clean_rod() -> None:
 
 
 def test_fragmented_mask_raises_fast() -> None:
-    """碎片化掩码必须快速失败，而不是卡住 1 s。"""
+    """碎片化掩码必须快速失败，而不是卡住 1 s。
+
+    同样取多次采样的最小值：这条门禁抓的是「保护被移除后退化到 ~1 s」，
+    200 ms 与 20 ms 之间是数量级差异。
+    """
     rng = np.random.default_rng(1)
     m = (rng.integers(0, 4, (400, 400)) >= 1).astype(np.uint8)
-    t0 = time.perf_counter()
-    with pytest.raises(ValueError, match="碎片化"):
-        measure_widths(m, spacing=4.0)
-    elapsed_ms = (time.perf_counter() - t0) * 1000.0
+
+    def _run() -> None:
+        with pytest.raises(ValueError, match="碎片化"):
+            measure_widths(m, spacing=4.0)
+
+    elapsed_ms = _best_ms(_run)
     assert elapsed_ms < 200.0, f"退化输入耗时 {elapsed_ms:.1f} ms，保护未生效"
 
 
