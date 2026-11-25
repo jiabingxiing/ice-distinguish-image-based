@@ -80,3 +80,5 @@ InferenceResult（Schema v1）
 | 骨架 + 法向亚像素 | 对悬链线弧垂与不对称冰形不敏感 |
 | EKF 2 状态 | 冰厚是小时级慢变，增长率约束可剔除飞掠雪花 |
 | 阈值全配置化 | 业务方按本地区规程校准，不重新发版 |
+| 冻结 MobileNetV3-Small + RBF SVM（ONNX opset 17） | SCUT 纯 CPU 验证微调跨期退化（Temporal F1 0.644->0.480），回退冻结特征线 + 温度缩放 + 三重拒识，单图 ORT 3.1 ms |
+| 覆冰类型 `none_rule / shadow / model` 三态隔离 | 未过 G2 门限（`Macro-F1>=0.70`）禁止 `model` 折减密度；`shadow` 仅写概率与复核字段，恒保标准密度 `900 kg/m³` |

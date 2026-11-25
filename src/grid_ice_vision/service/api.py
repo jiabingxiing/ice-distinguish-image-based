@@ -117,6 +117,8 @@ def create_app(
             "precip_backbone": p.precip.model.backbone.spec.name,
             "detector_backbone": p.detector.model.backbone.spec.name,
             "seg_backbone": p.seg.model.backbone.spec.name,
+            "ice_type_mode": p.rho.mode,
+            "ice_type_model": p.ice_type_service.model_version if p.ice_type_service else None,
             "config_hash": p._cfg_hash[:16],
             "rule_version": p.alarm_rules.version,
             "schema_version": "1.0.0",

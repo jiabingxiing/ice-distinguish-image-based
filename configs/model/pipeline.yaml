@@ -13,6 +13,8 @@ weights:
   precip: null            # artifacts/precip/precip-0.1.0/best.pt
   detector: null
   seg: null
+  ice_type: null          # artifacts/onnx/ice_type.onnx（shadow 联调可启用，未过 G2 门限禁开 model）
+  ice_type_roi_csv: configs/data/monitor_roi_v1.csv
   calibration: configs/model/precip_calibration.json
 
 evidence_dir: artifacts/evidence
@@ -54,9 +56,10 @@ severity:
   # 密度折算：结果里会带 rho_kg_m3 / rho_source，便于审计
   rho:
     default: 900
-    by_type: {glaze: 900, rime: 350, mixed: 600, none: 900, unknown: 900}
+    by_type: {glaze: 900, rime: 350, wet_snow: 350, mixed: 600, none: 900, unknown: 900}
   ice_type:
-    # none_rule：G0→none，其余→unknown（不猜）。heuristic/model 未验证前禁止开启
+    # none_rule：G0→none，其余→unknown；shadow：运行 ONNX 仅日志/字段输出但 rho 保持 900；
+    # model：仅过 G2 门限且经 ADR-0004 批准后开启自动密度折减（当前 SCUT 冻结基线 Macro-F1=0.5539 < 0.70，维持 none_rule/shadow）
     mode: none_rule
   # 绝缘子 Track A：面积变化率 Pa、桥接率、横/纵向偏冰分布（计划 §3.4.4）
   # ⚠️ 阈值为初值，须在 M2 分割权重到位后用复核掩码校准回写；

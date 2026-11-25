@@ -50,7 +50,8 @@ export MODEL_VERSION=<上一个版本>
 | precip | — | 未训练 | 等 P1 |
 | detector | — | 未训练 | 等 P2 |
 | seg | — | 未训练 | 等 P3 |
-| ice_type/grade | — | 未训练 | 等 P4 |
+| ice_type | `v1` | 纯 CPU 闭环与 ONNX 已导出（默认 `none_rule` / 可选 `shadow`） | 见 [`ice_type_v1.md`](ice_type_v1.md)；未过 G2 0.70 禁开自动密度折减 |
+| grade | — | 规则视觉分级 | 阈值由 `configs/model/pipeline.yaml` 治理 |
 
 > 当前仓库只完成**方法闭环 + 合成验证**（P0–P4 代码），没有任何生产权重。
 > 这一点必须在交付材料中明确写出。

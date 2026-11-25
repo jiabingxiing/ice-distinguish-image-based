@@ -11,7 +11,7 @@ from __future__ import annotations
 import time
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 import numpy as np
 import torch
@@ -63,10 +63,14 @@ from grid_ice_vision.features.severity.calibration import resolve_calibration
 from grid_ice_vision.features.severity.geometry import measure_widths
 from grid_ice_vision.features.severity.grading import SeverityThresholds, grade_from_coverage
 from grid_ice_vision.features.severity.ice_type import (
+    IceTypeSource,
     RhoPolicy,
     ice_type_confidence,
     resolve_ice_type,
 )
+
+if TYPE_CHECKING:
+    from grid_ice_vision.deployment.ice_type_runtime import OnnxIceTypeService
 from grid_ice_vision.features.severity.insulator_pa import (
     InsulatorPaConfig,
     InsulatorPaResult,
@@ -156,6 +160,7 @@ class InferencePipeline:
         seg_model: UNetLite,
         cfg: PipelineConfig,
         scaler: TemperatureScaler | None = None,
+        ice_type_service: OnnxIceTypeService | None = None,
     ) -> None:
         self.cfg = cfg
         self.device = cfg.device
@@ -175,6 +180,7 @@ class InferencePipeline:
         self.seg = IceSegInferencer(
             seg_model, SegInferConfig.from_config(cfg.seg or cfg.raw), device=cfg.device
         )
+        self.ice_type_service = ice_type_service
         self.quality_th = QualityThresholds.from_config(cfg.quality or cfg.raw)
         self.alarm_rules = AlarmRules.from_config(cfg.alarm or cfg.raw)
         self.severity_th = SeverityThresholds.from_config(cfg.severity or cfg.raw)
@@ -216,7 +222,24 @@ class InferencePipeline:
             import json
 
             scaler = TemperatureScaler.from_dict(json.loads(cal_path.read_text("utf-8")))
-        return cls(precip_model, det_model, seg_model, pc, scaler)
+
+        ice_service: OnnxIceTypeService | None = None
+        rho_policy = RhoPolicy.from_config(cfg)
+        it_path = pc.weights.get("ice_type")
+        if load_weights and it_path and rho_policy.mode in ("shadow", "model"):
+            from grid_ice_vision.common import paths
+            from grid_ice_vision.deployment.ice_type_runtime import load_onnx_ice_type_inferencer
+
+            p_onnx = Path(it_path) if Path(it_path).is_absolute() else paths.PROJ / it_path
+            if p_onnx.exists():
+                ice_service = load_onnx_ice_type_inferencer(
+                    p_onnx,
+                    roi_csv=pc.weights.get("ice_type_roi_csv"),
+                )
+            else:
+                log.warning("配置了 ice_type 权重但文件不存在，退回 none_rule：%s", p_onnx)
+
+        return cls(precip_model, det_model, seg_model, pc, scaler, ice_type_service=ice_service)
 
     # ------------------------------------------------------------------ 推理
     def run(
@@ -288,8 +311,32 @@ class InferencePipeline:
         if write_evidence and self.cfg.evidence_dir:
             evidence = self._write_evidence(image, image_id, seg, grade)
 
-        # 类型必须在厚度之前确定：密度折算要用它（G0→none，其余→unknown，不猜）
+        # 类型必须在厚度之前确定：密度折算要用它（shadow/model 启用 ONNX 分类 + 拒识保护）
+        ice_type: IceType
+        ice_src: IceTypeSource
         ice_type, ice_src = resolve_ice_type(grade)
+        ice_type_conf = ice_type_confidence(ice_src)
+        ice_class_probs: dict[str, float] = {}
+        ice_review = False
+        ice_reason: str | None = None
+
+        g0_confirmed_no_ice = (
+            self.rho.mode == "model"
+            and grade is VisualGrade.G0
+            and bool(self.cfg.weights.get("seg"))
+        )
+        if (
+            self.ice_type_service is not None
+            and self.rho.mode in ("shadow", "model")
+            and not g0_confirmed_no_ice
+        ):
+            it_pred = self.ice_type_service.predict_bgr(image, monitor_id=camera_id)
+            ice_type = it_pred.ice_type
+            ice_type_conf = it_pred.ice_type_conf
+            ice_src = it_pred.ice_type_source
+            ice_class_probs = dict(it_pred.class_probabilities)
+            ice_review = it_pred.requires_review
+            ice_reason = it_pred.review_reason
 
         severity = self._severity(
             image=image,
@@ -307,6 +354,7 @@ class InferencePipeline:
             baseline_iou=baseline_iou,
             baseline_corr=baseline_corr,
             is_insulator=primary.cls is AssetClass.INSULATOR_STRING,
+            ice_type_review=ice_review,
         )
 
         icing = IcingResult(
@@ -314,8 +362,11 @@ class InferencePipeline:
             confidence=seg.confidence,
             coverage_ratio=None if coverage is None else round(coverage, 4),
             ice_type=ice_type,
-            ice_type_conf=ice_type_confidence(ice_src),
+            ice_type_conf=ice_type_conf,
             ice_type_source=ice_src,
+            class_probabilities=ice_class_probs,
+            requires_review=ice_review,
+            review_reason=ice_reason,
             # 优先用 Track A 的桥接率（绝缘子），否则退回分割头给出的值
             bridge_ratio=(
                 severity.bridge_ratio
@@ -355,13 +406,16 @@ class InferencePipeline:
         baseline_iou: float | None = None,
         baseline_corr: float | None = None,
         is_insulator: bool = False,
+        ice_type_review: bool = False,
     ) -> SeverityResult:
         outcome = resolve_calibration(
             calib,
             ptz_zoom_now=source.ptz.zoom if source and source.ptz else None,
             ptz_zoom_ref=None,
         )
-        review = outcome.requires_review or quality.status is QualityStatus.DEGRADED
+        review = (
+            outcome.requires_review or quality.status is QualityStatus.DEGRADED or ice_type_review
+        )
 
         # ---- Track A：绝缘子视觉轨（不依赖标定，永远先算）----
         pa: InsulatorPaResult | None = None
@@ -408,7 +462,7 @@ class InferencePipeline:
                 baseline_ecc_corr=baseline_corr,
             )
 
-        rho, rho_src = self.rho.resolve(ice_type)
+        rho, rho_src = self.rho.resolve(ice_type, requires_review=ice_type_review)
         est = estimate_thickness(
             w_ice_px=wm.width_px,
             w0_px=w0_px,
@@ -512,6 +566,14 @@ class InferencePipeline:
         evidence: dict[str, str],
         t_start: float,
     ) -> InferenceResult:
+        model_ver = {
+            "pipeline": _PIPELINE_VERSION,
+            "precip": self.precip.model.backbone.spec.name,
+            "detector": self.detector.model.backbone.spec.name,
+            "seg": self.seg.model.backbone.spec.name,
+        }
+        if self.ice_type_service is not None:
+            model_ver["ice_type"] = self.ice_type_service.model_version
         return InferenceResult(
             image_id=image_id,
             source=source,
@@ -522,12 +584,7 @@ class InferencePipeline:
             severity=severity,
             evidence=evidence,
             provenance=Provenance(
-                model_version={
-                    "pipeline": _PIPELINE_VERSION,
-                    "precip": self.precip.model.backbone.spec.name,
-                    "detector": self.detector.model.backbone.spec.name,
-                    "seg": self.seg.model.backbone.spec.name,
-                },
+                model_version=model_ver,
                 config_hash=self._cfg_hash[:16],
                 inference_ms=round((time.perf_counter() - t_start) * 1000.0, 2),
                 rule_version=self.alarm_rules.version,

@@ -60,11 +60,34 @@ def test_from_config_overrides() -> None:
 
 
 def test_unimplemented_mode_is_rejected() -> None:
-    """heuristic/model 未验证前不允许打开，避免"用阈值猜"冒充能力。"""
+    """heuristic 永久禁用；shadow/model 仅通过受控策略允许。"""
     with pytest.raises(ValueError, match="尚未实现"):
         RhoPolicy(mode="heuristic")
-    with pytest.raises(ValueError, match="尚未实现"):
-        RhoPolicy(mode="model")
+
+
+def test_shadow_and_model_rho_policies() -> None:
+    """shadow 恒保持 900.0/standard；model 仅在可信四分类且未触发人工复核时折减密度。"""
+    shadow = RhoPolicy(mode="shadow")
+    all_types = (
+        IceType.NONE,
+        IceType.UNKNOWN,
+        IceType.GLAZE,
+        IceType.RIME,
+        IceType.WET_SNOW,
+        IceType.MIXED,
+    )
+    for t in all_types:
+        rho, src = shadow.resolve(t)
+        assert rho == pytest.approx(900.0)
+        assert src == "standard"
+
+    model_pol = RhoPolicy(mode="model")
+    assert model_pol.resolve(IceType.RIME) == (350.0, "ice_type_model")
+    assert model_pol.resolve(IceType.WET_SNOW) == (350.0, "ice_type_model")
+    assert model_pol.resolve(IceType.MIXED) == (600.0, "ice_type_model")
+    assert model_pol.resolve(IceType.GLAZE) == (900.0, "ice_type_model")
+    assert model_pol.resolve(IceType.RIME, requires_review=True) == (900.0, "standard")
+    assert model_pol.resolve(IceType.UNKNOWN) == (900.0, "standard")
 
 
 def test_nonpositive_default_rejected() -> None:
@@ -88,23 +111,29 @@ def test_ice_type_net_is_not_wired_into_pipeline() -> None:
 
 
 def test_pipeline_config_keeps_ice_type_off() -> None:
-    """防回归：配置文件层面也必须保持关闭。
-
-    只查源码不够——改一行 YAML 就能把 `mode` 改成 `model` 而绕过上面的检查；
-    这里从**真实配置**构造策略，等价于给生产配置加一道门禁（ADR-0003 G4）。
-    """
+    """防回归：未过 G2 门限前默认配置不得开启自动密度折减。"""
     from grid_ice_vision.common.config import get, load_config
 
     cfg = load_config("configs/model/pipeline.yaml")
     assert get(cfg, "severity.ice_type.mode") == "none_rule"
+    assert get(cfg, "weights.ice_type") is None
     pol = RhoPolicy.from_config(cfg)
     assert pol.mode == "none_rule"
 
 
 def test_no_path_yields_model_rho_source() -> None:
-    """`ice_type_model` 只能由已验证的类型头产生；现阶段出现即为缺陷。"""
-    pol = RhoPolicy()
-    for t in (IceType.NONE, IceType.UNKNOWN, IceType.GLAZE, IceType.RIME, IceType.MIXED):
-        rho, src = pol.resolve(t)
-        assert src != "ice_type_model"
-        assert rho > 0
+    """none_rule 与 shadow 下永远不会给出 ice_type_model 密度来源。"""
+    all_types = (
+        IceType.NONE,
+        IceType.UNKNOWN,
+        IceType.GLAZE,
+        IceType.RIME,
+        IceType.WET_SNOW,
+        IceType.MIXED,
+    )
+    for mode in ("none_rule", "shadow"):
+        pol = RhoPolicy(mode=mode)
+        for t in all_types:
+            rho, src = pol.resolve(t)
+            assert src != "ice_type_model"
+            assert rho > 0

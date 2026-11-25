@@ -108,20 +108,32 @@ def _build_loaders(cfg: dict[str, Any], task: str, eval_split: str = "val") -> t
 
 @app.command()
 def train(
-    task: str = typer.Argument(..., help="precip | seg | detector"),
+    task: str = typer.Argument(..., help="precip | seg | detector | ice_type"),
     config: str = typer.Option(..., "--config"),
+    stage: str = typer.Option(
+        "p2_frozen", "--stage", help="ice_type 阶段：p1_classical | p2_frozen | p3_finetune"
+    ),
 ) -> None:
     """训练单个任务。"""
-    from grid_ice_vision.common.config import configure_hf_mirror
+    from grid_ice_vision.common.config import configure_hf_mirror, configure_torch_cache
+
+    cfg = _cfg(config)
+    configure_hf_mirror(str(get(cfg, "hf_endpoint", "https://hf-mirror.com")))
+    configure_torch_cache()
+
+    if task == "ice_type":
+        from grid_ice_vision.training.ice_type.trainer import run_training
+
+        res = run_training(cfg, stage=stage)  # type: ignore[arg-type]
+        console.print_json(json.dumps(res, ensure_ascii=False))
+        return
+
     from grid_ice_vision.features.detection.model import DetectionNet
     from grid_ice_vision.features.ice.model import UNetLite
     from grid_ice_vision.features.precipitation.model import PrecipitationNet
     from grid_ice_vision.training.engine import TrainConfig, fit
     from grid_ice_vision.training.steps import det_step, precip_step, seg_step
 
-    # 必须在 import timm 之前设镜像，否则 pretrained=True 会失败（现在会显式报错）
-    cfg = _cfg(config)
-    configure_hf_mirror(str(get(cfg, "hf_endpoint", "https://hf-mirror.com")))
     train_loader, val_loader, _ = _build_loaders(cfg, task)
     backbone = str(get(cfg, "model.backbone", "mobilenetv4_conv_small"))
     pretrained = bool(get(cfg, "model.pretrained", False))
@@ -171,11 +183,35 @@ def train(
 
 @app.command()
 def evaluate(
-    config: str = typer.Option(..., "--config"), split: str = typer.Option("test")
+    config: str = typer.Option(..., "--config"),
+    split: str = typer.Option("test"),
+    stage: str = typer.Option(
+        "p2_frozen", "--stage", help="ice_type 阶段：p1_classical | p2_frozen | p3_finetune"
+    ),
+    model_dir: str = typer.Option(None, "--model-dir", help="仅 ice_type 模型目录"),
 ) -> None:
     """在指定 split 上评估并输出指标 JSON。"""
     cfg = _cfg(config)
     task = str(get(cfg, "task", "seg"))
+    if task == "ice_type":
+        import subprocess
+        import sys
+
+        from grid_ice_vision.common import paths
+
+        cmd = [
+            sys.executable,
+            str(paths.PROJ / "scripts" / "evaluate_ice_type.py"),
+            "--config",
+            config,
+            "--split",
+            split,
+            "--stage",
+            stage,
+        ]
+        if model_dir:
+            cmd.extend(["--model-dir", model_dir])
+        raise typer.Exit(subprocess.call(cmd))
     _, loader, _ = _build_loaders(cfg, task, eval_split=split)
     from grid_ice_vision.training.engine import evaluate as run_eval
     from grid_ice_vision.training.steps import det_step, precip_step, seg_step
@@ -235,12 +271,55 @@ def infer(
 
 @app.command()
 def export(
-    task: str = typer.Option("seg", help="precip | seg | detector"),
+    task: str = typer.Option("seg", help="precip | seg | detector | ice_type"),
     config: str = typer.Option("configs/deploy/onnx_cpu.yaml", "--config"),
+    weights: str = typer.Option(None, "--weights", help="ice_type 模型产物目录"),
     out: str = typer.Option(None, "--out"),
 ) -> None:
     """导出 ONNX 并做数值一致性校验。"""
     from grid_ice_vision.deployment.export import export_and_verify
+
+    target = out or f"artifacts/onnx/{task}.onnx"
+    if task == "ice_type":
+        from grid_ice_vision.common.constants import ICE_TYPE_FOUR_CLASSES
+        from grid_ice_vision.features.ice_type.backbone import IceTypeBackbone
+        from grid_ice_vision.features.ice_type.classifier import IceTypeLinearHead
+        from grid_ice_vision.features.ice_type.infer import IceTypeTorchModel
+        from grid_ice_vision.training.ice_type.trainer import build_exportable_torch_model
+
+        if weights and Path(weights).is_dir():
+            ice_model, mcfg = build_exportable_torch_model(weights)
+            sz = int(mcfg.get("image_size", 224))
+            roi_sz = int(mcfg.get("roi_size", sz))
+            vm = str(mcfg.get("view_mode", "full"))
+            roi_shape = (1, 3, roi_sz, roi_sz) if vm == "dual" else None
+            res = export_and_verify(ice_model, target, (1, 3, sz, sz), roi_shape=roi_shape)
+            wdir = Path(weights)
+            temp_d = json.loads((wdir / "temperature.json").read_text("utf-8"))
+            rej_d = json.loads((wdir / "reject_thresholds.json").read_text("utf-8"))
+            meta = {
+                "model_name": str(mcfg.get("backbone", "mobilenetv3_small_100")),
+                "model_version": str(mcfg.get("version", wdir.name)),
+                "view_mode": vm,
+                "image_size": sz,
+                "roi_size": roi_sz,
+                "pad_value": int(mcfg.get("pad_value", 114)),
+                "classes": list(ICE_TYPE_FOUR_CLASSES),
+                "exported_temperature_baked": float(temp_d.get("temperature", 1.0)),
+                "temperature": 1.0,
+                "reject": rej_d,
+            }
+            Path(target).with_suffix(".meta.json").write_text(
+                json.dumps(meta, ensure_ascii=False, indent=2), "utf-8"
+            )
+        else:
+            smoke = IceTypeTorchModel(
+                IceTypeBackbone(pretrained=False), IceTypeLinearHead(576, 4, dropout=0.0)
+            )
+            res = export_and_verify(smoke, target, (1, 3, 224, 224))
+        console.print_json(json.dumps(res, ensure_ascii=False))
+        return
+
     from grid_ice_vision.features.detection.model import DetectionNet
     from grid_ice_vision.features.ice.model import UNetLite
     from grid_ice_vision.features.precipitation.model import PrecipitationNet
@@ -257,7 +336,6 @@ def export(
     else:
         model = DetectionNet(backbone)
         keys = None
-    target = out or f"artifacts/onnx/{task}.onnx"
     res = export_and_verify(model, target, (1, 3, size, size), keys=keys)
     console.print_json(json.dumps(res, ensure_ascii=False))
 

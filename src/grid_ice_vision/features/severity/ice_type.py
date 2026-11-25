@@ -21,12 +21,12 @@ from grid_ice_vision.common.schemas import IceType, VisualGrade
 IceTypeSource = Literal["none_rule", "heuristic", "model", "unavailable"]
 RhoSource = Literal["standard", "config_prior", "ice_type_model"]
 
-_VALID_MODES = ("none_rule",)
+_VALID_MODES = ("none_rule", "shadow", "model")
 
 
 @dataclass(frozen=True)
 class RhoPolicy:
-    """覆冰密度取值策略。"""
+    """覆冰密度取值策略（支持 none_rule / shadow / model，heuristic 已永久禁用）。"""
 
     by_type: dict[str, float] = field(default_factory=lambda: dict(RHO_BY_ICE_TYPE))
     default: float = RHO_STANDARD
@@ -36,7 +36,7 @@ class RhoPolicy:
         if self.mode not in _VALID_MODES:
             raise ValueError(
                 f"ice_type.mode={self.mode!r} 尚未实现/未验证。"
-                f"当前仅支持 {_VALID_MODES}；启用 heuristic 前需 ≥200 个带类型的 ROI 验证。"
+                f"当前仅支持 {_VALID_MODES}；未过 G2 门限禁开自动密度折减。"
             )
         if self.default <= 0:
             raise ValueError("default 密度必须为正")
@@ -54,12 +54,20 @@ class RhoPolicy:
             mode=mode,
         )
 
-    def resolve(self, ice_type: IceType | str | None) -> tuple[float, RhoSource]:
-        """返回 (ρ, 来源)。`none`/`unknown`/缺失 一律用标准密度。"""
+    def resolve(
+        self,
+        ice_type: IceType | str | None,
+        *,
+        requires_review: bool = False,
+    ) -> tuple[float, RhoSource]:
+        """返回 (ρ, 来源)。`shadow`/拒识或 `unknown`/`none` 一律用标准密度 900。"""
+        if self.mode == "shadow" or requires_review:
+            return self.default, "standard"
         key = str(ice_type or "unknown")
         if key in ("unknown", "none"):
             return self.default, "standard"
-        return self.by_type.get(key, self.default), "config_prior"
+        src: RhoSource = "ice_type_model" if self.mode == "model" else "config_prior"
+        return self.by_type.get(key, self.default), src
 
 
 def resolve_ice_type(grade: VisualGrade) -> tuple[IceType, IceTypeSource]:
