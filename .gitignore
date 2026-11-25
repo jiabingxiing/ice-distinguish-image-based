@@ -36,6 +36,14 @@ data/processed/*
 !data/**/README.md
 data/manifests/*.jsonl
 
+# 划分索引由 scripts/build_scut_manifest.py 确定性重建（固定 seed=42）。
+# 产物含客户单位名称、线路名与杆塔编号，属敏感台账信息，**不入库**。
+# 需要时本地生成：python scripts/build_scut_manifest.py
+data/splits/*.jsonl
+
+# CatBoost 训练临时目录（默认在 cwd 生成，不应入库）
+catboost_info/
+
 # ---- 密钥与本地配置 ----
 .env
 .env.*

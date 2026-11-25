@@ -1,0 +1,20 @@
+# 外部数据目录映射模板（入库）
+#
+# 用法：复制本文件为 `configs/paths.local.yaml`（该文件已在 .gitignore 中，
+# 不会入库），填入本机真实路径。支持三种写法：
+#
+#   1. 环境变量（最高优先级）：GX_SCUT_ROOT=<绝对目录>
+#   2. 本文件 `external.<KEY>`：可写绝对路径，也可写相对项目根的相对路径
+#   3. 都不配时回退约定位点：<项目根的上级>/NW_data/<默认子目录>
+#
+# 解析实现见 `src/grid_ice_vision/common/paths.py::external()`。
+# 三处全部落空时程序 **显式报错**，不会静默回退到任何写死的盘符。
+
+external:
+  # 华南理工整理覆冰图像库：7,296 张实测图（2014..2018 子目录）
+  # + 2014_2018_icetype_weather_data.csv（7,297 行 / 44 列）
+  SCUT_ROOT: "../NW_data/华南理工 整理覆冰图像库-from梁苇和陈思睿"
+
+  # 以下为后续里程碑使用，当前可留空（留空 = 回退约定位点或报错）
+  # TTPLA_ROOT: "../NW_data/ttpla"
+  # WEAPD_ROOT: "../NW_data/weapd"

@@ -58,6 +58,23 @@ severity:
   ice_type:
     # none_rule：G0→none，其余→unknown（不猜）。heuristic/model 未验证前禁止开启
     mode: none_rule
+  # 绝缘子 Track A：面积变化率 Pa、桥接率、横/纵向偏冰分布（计划 §3.4.4）
+  # ⚠️ 阈值为初值，须在 M2 分割权重到位后用复核掩码校准回写；
+  #    当前偏冰分布判定**未经有效验证**（见 artifacts/reports/m3_track_a_smoke.json）。
+  insulator_pa:
+    band_all_min: 0.60        # 三带冰密度都 ≥ 该值 → 判「全部覆冰」
+    band_contrast_min: 0.25   # 带间密度差 < 该值 → 视为均匀，判「全部覆冰」
+    uniform_tol: 0.15         # 横向左右冰量占比差 ≤ 该值 → 判「均匀」
+    min_ice_px: 8             # 低于该像素数的冰视为噪声
+    min_asset_px: 200         # 有效设备像素低于该值 → reliable=False，转人工复核
+
+# 同终端无冰基准匹配（计划 §3.3 BASE）
+baseline:
+  iou_min: 0.60              # 计划 §3.3 规定 0.6
+  ecc_corr_min: 0.60         # 配准相关下限；低于该值视为机位漂移，弃用基准
+  max_candidates: 3          # 每次最多配准的候选数（控制时延）
+  max_age_hours: 0.0         # 0 = 不限时间跨度
+  allow_unregistered: false  # 默认禁止「不配准直接用」，宁可不给 Pa
 
 alarm:
   version: "1.0.0"
@@ -71,6 +88,9 @@ alarm:
     escalate_frames: 3
     deescalate_frames: 5
   ekf:
+    # 固定步长兜底值：仅在调用方未提供真实 Image_Time 间隔时使用。
+    # 实测 SCUT 真实采样间隔中位 2.0 h、45.3% 落在 1–6 h，因此 15 min 只作兜底，
+    # 正常链路应经 InferencePipeline.run(history_timestamps=...) 传入真实间隔。
     dt_minutes: 15
     growth_rate_max_mm_per_h: 3.0
     innovation_gate_sigma: 3.0

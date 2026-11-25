@@ -1,7 +1,7 @@
 # AGENTS.md —— 仓库契约（写给所有参与的人与 Agent）
 
 > 本文件是**硬规则**，违反会被 CI 或 pre-commit 拦下。
-> 计划依据：`../IMPLEMENTATION_PLAN.md` §9.2、§12、§15。
+> 计划依据：`docs/IMPLEMENTATION_PLAN.md` §9.2、§12、§15。
 
 ## 1. 模块边界（不可越界）
 

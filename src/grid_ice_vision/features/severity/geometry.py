@@ -10,9 +10,16 @@ from __future__ import annotations
 
 from collections import deque
 from dataclasses import dataclass
+from typing import Final
 
 import numpy as np
-from scipy.ndimage import distance_transform_edt, gaussian_filter, map_coordinates, sobel
+from scipy.ndimage import (
+    distance_transform_edt,
+    gaussian_filter,
+    map_coordinates,
+    sobel,
+    spline_filter,
+)
 from skimage.morphology import skeletonize
 
 
@@ -93,11 +100,33 @@ def _trace_path(end: int, prev: np.ndarray) -> np.ndarray:
     return np.asarray(path[::-1], dtype=np.int64)
 
 
-def skeleton_polyline(mask: np.ndarray, min_pixels: int = 8) -> np.ndarray:
+#: 骨架像素上限。超过即判为碎片化掩码，抛错降级为 visual_only（见 `skeleton_polyline`）。
+#: 依据：真实导线/绝缘子骨架 10²–10³ px（实测 378 px → 10.9 ms）；
+#: 随机掩码可到 8.8×10⁴ px（→ 992 ms）。20,000 px 留足长导线余量，
+#: 同时把病态输入的耗时压到可接受范围。
+MAX_SKEL_PX: Final[int] = 20_000
+
+
+def skeleton_polyline(
+    mask: np.ndarray, min_pixels: int = 8, max_skel_px: int = MAX_SKEL_PX
+) -> np.ndarray:
     """提取掩码的最长中轴折线，返回 `(N, 2)` 的 `(x, y)` 浮点坐标。
 
     用「两次 BFS 求图直径」而非遍历所有端点：分支（毛刺、冰凌）会被自然剪掉，
     只保留最长的连通路径，正好对应一根导线的走向。
+
+    退化保护
+    --------
+    BFS 是纯 Python 逐像素迭代，复杂度 O(骨架像素数)。正常的导线/绝缘子串骨架
+    只有数百到数千像素；但若上游给出**碎片化**掩码（例如随机权重的分割头，
+    或极端噪声），骨架会膨胀到数万像素，单次测量可达 **~1 s**，直接击穿
+    180 ms 延迟预算。
+
+    实测对照：真实竖向设备（400×400、骨架 378 px）10.9 ms；
+    随机 4 类掩码（骨架 88,075 px）992 ms。因此设上限：
+    骨架像素超过 `max_skel_px` 时抛 `ValueError`，由 `pipeline.py` 的既有
+    `except ValueError` 分支降级为 `visual_only + requires_review=True`，
+    绝不静默输出可疑厚度。
     """
     binary = np.asarray(mask).astype(bool)
     if binary.sum() < min_pixels:
@@ -107,6 +136,11 @@ def skeleton_polyline(mask: np.ndarray, min_pixels: int = 8) -> np.ndarray:
     coords = np.argwhere(skel)  # (N, 2) 的 (row, col)
     if len(coords) < min_pixels:
         raise ValueError(f"骨架像素过少（{len(coords)}）")
+    if len(coords) > max_skel_px:
+        raise ValueError(
+            f"骨架过于碎片化（{len(coords)} px > 上限 {max_skel_px}），"
+            "宽度测量不可靠，应降级为 visual_only"
+        )
 
     index = {(int(r), int(c)): i for i, (r, c) in enumerate(coords)}
     a, _ = _bfs((int(coords[0, 0]), int(coords[0, 1])), index, coords)
@@ -262,12 +296,21 @@ def measure_widths(
     )
     dt = distance_transform_edt(binary)
 
+    # 三次样条系数必须**预计算一次**：`map_coordinates(order=3)` 默认每次调用都会
+    # 对整幅图重做 spline_filter。实测 400×400 竖向设备、95 个截面时，
+    # 逐截面调用 → 427 ms；预滤波后同一批采样仅 7.8 ms（55× 加速）。
+    # 这是 §7.2「CPU P95 ≤ 180 ms」门槛能否达成的关键，且数值结果完全一致
+    # （同一插值核，只是把可复用的滤波提出来做一次）。
+    edge_spline = spline_filter(np.asarray(edge, dtype=np.float64), order=3)
+
     sections: list[Section] = []
     for i, (p, n) in enumerate(zip(poly, normals, strict=True)):
         half = max(min_search_px, search_scale * float(dt[round(p[1]), round(p[0])]))
         ts = np.arange(-half, half + step * 0.5, step)
         pts = p[None, :] + ts[:, None] * n[None, :]
-        vals = map_coordinates(edge, [pts[:, 1], pts[:, 0]], order=3, mode="nearest")
+        vals = map_coordinates(
+            edge_spline, [pts[:, 1], pts[:, 0]], order=3, mode="nearest", prefilter=False
+        )
 
         t_up, ok_up = _side_peak(vals, ts, "up", min_peak)
         t_down, ok_down = _side_peak(vals, ts, "down", min_peak)
