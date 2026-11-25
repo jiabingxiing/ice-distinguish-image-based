@@ -9,7 +9,7 @@
 | `interim/` | 去重、裁切、格式转换中间产物 | 可重建 |
 | `processed/` | 训练就绪（图像 + 掩码 + COCO） | 由脚本生成 |
 | `manifests/` | 版本化清单（JSONL） | 每次训练绑定一个 |
-| `splits/` | 划分索引（JSONL） | **入库**：锁定留出集，seed 固定可复现 |
+| `splits/` | 划分索引（JSONL） | **不入库**：含客户台账信息；seed 固定，由脚本重建 |
 
 生成方式：
 
@@ -34,7 +34,14 @@ python scripts/validate_dataset.py --manifest data/manifests/icing_v1.jsonl --ch
 | 冻杯（三天风速全 0） | **1,411 行（19.3%）** | 置 `NaN` 交 CatBoost 原生缺失分支 |
 | 双无冰噪声候选 | **18 张** | 已发现仍有明显雾凇，需人工复检后再入负样本池 |
 
-划分索引（`scripts/build_scut_manifest.py`，seed=42）：
+划分索引（`scripts/build_scut_manifest.py`，seed=42）**不入库**，理由是该产物逐图带
+`bureau` / `tower` 等客户台账字段。需要时本地重建：
+
+```bash
+python scripts/build_scut_manifest.py    # 产出 data/splits/{scut_monitor_v2,scut_temporal_v2}.jsonl
+```
+
+重建结果应与下表一致（用于校验脚本未漂移）：
 
 | 协议 | train | val | test |
 |---|---|---|---|
