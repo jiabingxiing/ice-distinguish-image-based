@@ -21,7 +21,7 @@
 
 ### 决策 B：上线模式严格锁定为 `none_rule`（默認）与可选只读 `shadow`，禁开自动密度折减 `model`
 - 虽然 `v1` 达到了 P2 阶段门（`Macro-F1 = 0.5539 >= 0.55`、`BAcc = 0.5627 >= 0.55`、`ECE = 0.0617 <= 0.15`）、双向 `glaze <-> rime` 控制在 `17.76% / 16.84% (<= 20%)`、且 ONNX 导出误差 `9.83e-6`、ORT 推理仅 `3.07 ms (P50)`；
-- 但仍**未达到 G2 生产门限 `Macro-F1 >= 0.70`**，且在 2018 跨年/特定局站（如某局）上存在显著域漂移与 `mixed -> rime (54.76%)` 系统性混淆；
+- 但仍**未达到 G2 生产门限 `Macro-F1 >= 0.70`**，且在 2018 跨年/特定局站上存在显著域漂移与 `mixed -> rime (54.76%)` 系统性混淆（具体局站属客户敏感信息，不在此列出）；
 - 因此：
   1. `configs/model/pipeline.yaml` 默认保持 `severity.ice_type.mode: none_rule`、`weights.ice_type: null`；
   2. 工程侧在 `RhoPolicy` 与 `InferencePipeline` 中实现受控三态：`none_rule`（零额外算力） / `shadow`（运行 `ice_type.onnx` 填充 `ice_type`、`class_probabilities`、`requires_review` 并写入审计字段，**但 `RhoPolicy` 强制返回标准密度 `900.0 kg/m³`、`rho_source="standard"`**） / `model`（仅当 `not requires_review` 时允许折减密度）；
