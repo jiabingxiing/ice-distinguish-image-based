@@ -82,9 +82,7 @@ def _bbox_from_saliency(sal: np.ndarray) -> tuple[float, float, float, float]:
                 x2 = x1 + bw
                 if x2 > x_max:
                     continue
-                energy = float(
-                    integ[y2, x2] - integ[y1, x2] - integ[y2, x1] + integ[y1, x1]
-                )
+                energy = float(integ[y2, x2] - integ[y1, x2] - integ[y2, x1] + integ[y1, x1])
                 score = energy / denom
                 if score > best_score:
                     best_score = score
