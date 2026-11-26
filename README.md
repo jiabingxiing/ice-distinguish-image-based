@@ -5,9 +5,10 @@
 输出三类结构化结果：**降水相态（视觉）** + **部件覆冰状态** + **覆冰程度（含物理量纲）**，
 以统一 JSON 契约接入电网运维平台。
 
-> 本仓库是 `../plans/IMPLEMENTATION_PLAN.md`（合并版 v1.0）的代码落地，
-> 当前实施基线为 `../plans/电网覆冰智能识别_v2.0-实现计划.md`。
-> 计划文档在上级 `plans/` 目录，本文件只描述**怎么跑**与**边界在哪**。
+> 远程仓库：<https://github.com/jiabingxiing/ice-distinguish-image-based>（公开，默认分支 `main`）。
+> 本仓库是 `docs/IMPLEMENTATION_PLAN.md`（合并版 v1.0）的代码落地，
+> 当前实施基线为 `docs/电网覆冰智能识别_v2.0-实现计划.md`。
+> 计划与调研文档集中在 `docs/`，本文件只描述**怎么跑**与**边界在哪**。
 
 ---
 
@@ -107,7 +108,8 @@ docs/         架构、标注规范、等级 rubric、许可台账、ADR、模�
 tests/        unit（每次提交）/ integration（每次 PR）/ e2e（每日回归）
 ```
 
-硬规则见 `AGENTS.md`。仓库**没有远端、CI 不会自动跑**，靠提交前自己执行 `just check` 落实。
+硬规则见 `AGENTS.md`。远程为 <https://github.com/jiabingxiing/ice-distinguish-image-based>；
+本机未安装 pre-commit 钩子，提交前必须自己执行 `just check` 落实。
 
 ## 5. 模块边界（摘要）
 
@@ -127,8 +129,7 @@ tests/        unit（每次提交）/ integration（每次 PR）/ e2e（每日�
 - `0.1.0` — P0–P4 工程闭环（方法 + 合成验证）。生产精度未验证。
 - `pyproject.toml` 与 `src/grid_ice_vision/__init__.py` 的 `__version__` 当前都是 `0.1.0`；
   计划中的 v2.0（`0.2.0`）尚未开始实现。
-- **分支现状（2026-11-25）**：三条特性分支已全部并入 `master`（快进合并，无合并提交）。
-  `master` 现为 `5500082`，含位置无关路径层、SCUT 审计与双划分、Track A 的
-  `Pa`/基准匹配/变步长 EKF/几何 55× 提速。旧的 `feat/m0-paths-preflight`（`b708335`）与
-  `feat/v2-scut-upgrade`（`18d9110`）已完全包含在 `master` 中，可删除。
-  `feat/m3-severity-track-a` 与 `master` 同点，后续开发建议从 `master` 重新拉分支。
+- **分支现状（2026-11-26）**：`master` 已合入 `feat/ice-type-cpu-v1`（含纯 CPU 冰型基线、
+>   ONNX 运行时、受控 pipeline/API/CLI、ADR-0004），并已合并远程 `main`。
+>   远程仓库：<https://github.com/jiabingxiing/ice-distinguish-image-based>。
+>   旧的 `feat/m0-paths-preflight`（`b708335`）与 `feat/v2-scut-upgrade`（`18d9110`）已完全包含，可删除。

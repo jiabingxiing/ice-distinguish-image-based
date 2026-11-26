@@ -1,9 +1,10 @@
 # AGENTS.md —— 仓库契约（写给所有参与的人与 Agent）
 
 > 本文件是**硬规则**。
-> 计划依据：`../plans/IMPLEMENTATION_PLAN.md` §9.2、§12、§15（v1.0 归档）；
-> 当前实施基线为 `../plans/电网覆冰智能识别_v2.0-实现计划.md`。
-> ⚠️ 本仓库**没有远端**，`.github/workflows/` 不会自动执行；也**未安装** pre-commit 钩子。
+> 远程仓库：<https://github.com/jiabingxiing/ice-distinguish-image-based>（公开，默认分支 `main`）。
+> 计划依据：`docs/IMPLEMENTATION_PLAN.md` §9.2、§12、§15（v1.0 归档）；
+> 当前实施基线为 `docs/电网覆冰智能识别_v2.0-实现计划.md`。
+> ⚠️ 本机**未安装** pre-commit 钩子，`.github/workflows/` 在本机不执行。
 > 规则靠提交前自己跑 §5 的检查落实，不要假设「CI 会拦」。
 
 ## 1. 模块边界（不可越界）
